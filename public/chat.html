@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>影迹聊天</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: #17211d;
+        background: #f6f3ed;
+        font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      }
+
+      main {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100vh;
+      }
+
+      header,
+      form {
+        background: #fffefa;
+      }
+
+      header {
+        padding: 14px 16px;
+        border-bottom: 1px solid #ddd9ce;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      small,
+      span {
+        color: #66736c;
+      }
+
+      #messages {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        overflow: auto;
+        padding: 14px;
+      }
+
+      article {
+        padding: 10px 12px;
+        border: 1px solid #e0ded5;
+        border-radius: 8px;
+        background: #fffefa;
+      }
+
+      article.system {
+        background: #edf7f1;
+      }
+
+      strong,
+      span {
+        display: block;
+      }
+
+      p {
+        margin: 4px 0;
+        line-height: 1.45;
+      }
+
+      span {
+        font-size: 0.78rem;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 12px;
+        border-top: 1px solid #ddd9ce;
+      }
+
+      input,
+      button {
+        min-height: 40px;
+        border: 1px solid #d4d8d1;
+        border-radius: 8px;
+        font: inherit;
+      }
+
+      input {
+        padding: 8px 10px;
+      }
+
+      button {
+        padding: 0 14px;
+        color: #fff;
+        background: #0d6549;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="title">影迹聊天</h1>
+        <small>可以把这个窗口放在播放窗口旁边</small>
+      </header>
+      <section id="messages"></section>
+      <form id="form">
+        <input id="input" placeholder="边看边聊" autocomplete="off" />
+        <button>发送</button>
+      </form>
+    </main>
+    <script>
+      const channel = "BroadcastChannel" in window ? new BroadcastChannel("cinelist-watch-chat") : null;
+      const title = document.getElementById("title");
+      const messages = document.getElementById("messages");
+      const form = document.getElementById("form");
+      const input = document.getElementById("input");
+      const params = new URLSearchParams(location.search);
+      const author = params.get("author") || "我";
+
+      function timeLabel(value) {
+        try {
+          return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+        } catch {
+          return "";
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[char]);
+      }
+
+      function render(items) {
+        messages.innerHTML = (items || []).map((message) =>
+          `<article class="${message.author === "系统" ? "system" : ""}"><strong>${escapeHtml(message.author)}</strong><p>${escapeHtml(message.text)}</p><span>${timeLabel(message.createdAt)}</span></article>`
+        ).join("");
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      channel && (channel.onmessage = (event) => {
+        if (event.data && event.data.type === "room-state") {
+          title.textContent = `${event.data.title} · 聊天`;
+          render(event.data.messages || []);
+        }
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        channel && channel.postMessage({ type: "send-message", text, author });
+        input.value = "";
+      });
+
+      channel && channel.postMessage({ type: "request-state" });
+    </script>
+  </body>
+</html>
