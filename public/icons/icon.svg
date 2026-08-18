@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#c2186a"/>
+  <path d="M130 112h252c18 0 32 14 32 32v224c0 18-14 32-32 32H130c-18 0-32-14-32-32V144c0-18 14-32 32-32Z" fill="#6b123e"/>
+  <path d="M146 158h220v42H146v-42Zm0 78h220v42H146v-42Zm0 78h148v42H146v-42Z" fill="#fffefa"/>
+  <path d="M348 304l52 30-52 30v-60Z" fill="#fffefa"/>
+  <text x="256" y="290" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="164" font-weight="800" fill="#fffefa">影</text>
+</svg>

@@ -1,0 +1,19 @@
+{
+  "name": "影迹 CineList",
+  "short_name": "影迹",
+  "description": "个人观影清单、快速选片、评价记录与观影总结。",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff2f7",
+  "theme_color": "#c2186a",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
