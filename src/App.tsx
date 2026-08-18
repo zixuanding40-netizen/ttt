@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useState } from "react";
 
-type Tab = "home" | "library" | "picker" | "rankings" | "watch" | "party" | "summary" | "settings";
+type Tab = "home" | "library" | "picker" | "rankings" | "watch" | "party" | "discussion" | "summary" | "settings";
 type MovieStatus = "想看" | "在看" | "已看" | "暂停" | "弃看";
 type Priority = "很想看" | "有时间看" | "随缘看";
 type ContentType = "电影" | "剧集" | "动漫" | "纪录片" | "综艺" | "短剧";
@@ -50,6 +50,7 @@ type UserMovieRecord = {
 };
 
 type UserProfile = {
+  displayName: string;
   ageRange: string;
   gender: string;
   region: string;
@@ -67,6 +68,8 @@ type AppState = {
   movies: Movie[];
   records: Record<string, UserMovieRecord>;
   profile: UserProfile;
+  discussions: DiscussionComment[];
+  talentReviews: TalentReview[];
 };
 
 type MovieForm = {
@@ -127,6 +130,35 @@ type WatchRoomDraft = {
   friendName: string;
 };
 
+type DiscussionComment = {
+  id: string;
+  movieId: string;
+  parentId: string | null;
+  author: string;
+  text: string;
+  likes: number;
+  createdAt: string;
+};
+
+type TalentReview = {
+  id: string;
+  movieId: string;
+  authorName: string;
+  authorGender: string;
+  authorGenres: string[];
+  title: string;
+  videoUrl: string;
+  insight: string;
+  createdAt: string;
+};
+
+type TalentReviewDraft = {
+  movieId: string;
+  title: string;
+  videoUrl: string;
+  insight: string;
+};
+
 type WebSearchTarget = {
   name: string;
   description: string;
@@ -135,6 +167,14 @@ type WebSearchTarget = {
 
 const STORAGE_KEY = "cinelist-mvp-state-v1";
 const today = new Date().toISOString().slice(0, 10);
+
+function makeId(prefix = "") {
+  const randomId =
+    globalThis.crypto && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}${randomId}`;
+}
 
 const genreOptions = [
   "剧情",
@@ -236,7 +276,14 @@ function makePlatform(platformName: string, title: string, watchType = "搜索�
   };
 }
 
+const firstEpisodeUrls: Record<string, string> = {
+  "腾讯视频|开端": "https://v.qq.com/x/cover/mzc00200mp8vo9b/n0041aa087e.html",
+  "芒果TV|念念无明": "https://www.mgtv.com/b/436392/15835238.html",
+};
+
 function playableUrl(platform: PlatformAvailability, title: string) {
+  const directUrl = firstEpisodeUrls[`${platform.platformName}|${title}`];
+  if (directUrl) return directUrl;
   const homePages = new Set([
     "https://v.qq.com",
     "https://www.iqiyi.com",
@@ -1461,6 +1508,7 @@ const initialRecords: Record<string, UserMovieRecord> = {
 };
 
 const initialProfile: UserProfile = {
+  displayName: "影迹达人",
   ageRange: "26-35",
   gender: "不便透露",
   region: "中国大陆",
@@ -1473,6 +1521,57 @@ const initialProfile: UserProfile = {
     useGender: false,
   },
 };
+
+const initialDiscussions: DiscussionComment[] = [
+  {
+    id: "dc-1",
+    movieId: "m-1",
+    parentId: null,
+    author: "游客",
+    text: "这部适合开一个周末共看局，结尾很适合聊很久。",
+    likes: 8,
+    createdAt: today,
+  },
+  {
+    id: "dc-2",
+    movieId: "m-36",
+    parentId: null,
+    author: "影迹用户",
+    text: "短剧区可以按爽感、甜度和集数来分，找片会更快。",
+    likes: 5,
+    createdAt: today,
+  },
+];
+
+const initialTalentReviews: TalentReview[] = [
+  {
+    id: "tr-1",
+    movieId: "m-1",
+    authorName: "影迹达人",
+    authorGender: "不便透露",
+    authorGenres: ["悬疑", "科幻", "剧情"],
+    title: "为什么《心灵奇旅》适合低落时重看",
+    videoUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    insight: "从音乐、人生选择和情绪疗愈三个角度，聊聊这部片为什么适合一个人安静看完。",
+    createdAt: today,
+  },
+  {
+    id: "tr-2",
+    movieId: "m-36",
+    authorName: "短剧观察员",
+    authorGender: "女",
+    authorGenres: ["短剧", "甜宠", "都市"],
+    title: "短剧爽感不是无脑，节奏设计很关键",
+    videoUrl: "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    insight: "用三分钟拆解短剧的反转节奏、人物钩子和追更动力，适合想找下饭内容的同学。",
+    createdAt: today,
+  },
+];
+
+const sampleTalentVideos = [
+  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+  "https://media.w3.org/2010/05/sintel/trailer.mp4",
+];
 
 function makeRecord(
   movieId: string,
@@ -1503,6 +1602,8 @@ function createInitialState(): AppState {
     movies: seedMovies,
     records: initialRecords,
     profile: initialProfile,
+    discussions: initialDiscussions,
+    talentReviews: initialTalentReviews,
   };
 }
 
@@ -1511,11 +1612,13 @@ function loadState(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw) as AppState;
-    return {
-      movies: mergeMovies(parsed.movies),
-      records: normalizeRecords({ ...initialRecords, ...(parsed.records ?? {}) }),
-      profile: { ...initialProfile, ...parsed.profile },
-    };
+      return {
+        movies: mergeMovies(parsed.movies),
+        records: normalizeRecords({ ...initialRecords, ...(parsed.records ?? {}) }),
+        profile: { ...initialProfile, ...parsed.profile },
+        discussions: Array.isArray(parsed.discussions) ? parsed.discussions : initialDiscussions,
+        talentReviews: Array.isArray(parsed.talentReviews) ? parsed.talentReviews : initialTalentReviews,
+      };
   } catch {
     return createInitialState();
   }
@@ -1546,6 +1649,30 @@ function splitText(value: string) {
     .filter(Boolean);
 }
 
+async function copyText(value: string) {
+  if (!value) return false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea fallback below.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const [activeTab, setActiveTab] = useState<Tab>("home");
@@ -1554,7 +1681,9 @@ function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [skippedIds, setSkippedIds] = useState<string[]>([]);
   const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
+  const [selectedTalentReviewId, setSelectedTalentReviewId] = useState<string | null>(null);
   const [watchState, setWatchState] = useState<{ movieId: string; positionSeconds: number; playing: boolean } | null>(null);
+  const [guideMood, setGuideMood] = useState(0);
   const [form, setForm] = useState<MovieForm>(emptyForm());
   const [chatInput, setChatInput] = useState("");
   const [roomDraft, setRoomDraft] = useState<WatchRoomDraft>(() => ({
@@ -1562,6 +1691,12 @@ function App() {
     platformName: state.movies[0]?.platforms[0]?.platformName ?? platformOptions[0],
     hostName: "我",
     friendName: "好友",
+  }));
+  const [talentDraft, setTalentDraft] = useState<TalentReviewDraft>(() => ({
+    movieId: state.movies[0]?.id ?? "",
+    title: "",
+    videoUrl: "",
+    insight: "",
   }));
   const [watchRoom, setWatchRoom] = useState<WatchRoom | null>(null);
   const [picker, setPicker] = useState<PickerInput>({
@@ -1661,7 +1796,7 @@ function App() {
 
   function saveMovie(event: FormEvent) {
     event.preventDefault();
-    const id = editingId ?? `m-${crypto.randomUUID()}`;
+    const id = editingId ?? makeId("m-");
     const movie: Movie = {
       id,
       title: form.title.trim() || "未命名影片",
@@ -1751,6 +1886,70 @@ function App() {
     });
   }
 
+  function addDiscussion(movieId: string, text: string, parentId: string | null = null, author = "游客") {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    setState((current) => ({
+      ...current,
+      discussions: [
+        {
+          id: makeId("dc-"),
+          movieId,
+          parentId,
+          author: author.trim() || "游客",
+          text: cleanText,
+          likes: 0,
+          createdAt: new Date().toISOString(),
+        },
+        ...current.discussions,
+      ],
+    }));
+  }
+
+  function publishTalentReview(event: FormEvent) {
+    event.preventDefault();
+    const movie = state.movies.find((item) => item.id === talentDraft.movieId) ?? state.movies[0];
+    if (!movie || !talentDraft.title.trim() || !talentDraft.insight.trim()) return;
+    const review: TalentReview = {
+      id: makeId("tr-"),
+      movieId: movie.id,
+      authorName: state.profile.displayName.trim() || "影迹达人",
+      authorGender: state.profile.gender,
+      authorGenres: state.profile.favoriteGenres,
+      title: talentDraft.title.trim(),
+      videoUrl: talentDraft.videoUrl.trim() || sampleTalentVideos[state.talentReviews.length % sampleTalentVideos.length],
+      insight: talentDraft.insight.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    setState((current) => ({
+      ...current,
+      talentReviews: [review, ...current.talentReviews],
+    }));
+    setTalentDraft({
+      movieId: movie.id,
+      title: "",
+      videoUrl: "",
+      insight: "",
+    });
+    setActiveTab("home");
+  }
+
+  function deleteTalentReview(reviewId: string) {
+    setState((current) => ({
+      ...current,
+      talentReviews: current.talentReviews.filter((review) => review.id !== reviewId),
+    }));
+  }
+
+  function likeDiscussion(commentId: string) {
+    setState((current) => ({
+      ...current,
+      discussions: current.discussions.map((comment) => (
+        comment.id === commentId ? { ...comment, likes: comment.likes + 1 } : comment
+      )),
+    }));
+  }
+
   function createWatchRoom(movieId = roomDraft.movieId, startSeconds = 0) {
     const movie = state.movies.find((item) => item.id === movieId) ?? draftMovie;
     if (!movie) return;
@@ -1759,7 +1958,7 @@ function App() {
       roomDraft.platformName ||
       movie.platforms[0]?.platformName ||
       platformOptions[0];
-    const roomId = `room-${crypto.randomUUID().slice(0, 8)}`;
+    const roomId = makeId("room-").slice(0, 13);
     const inviteLink = `${window.location.origin}${window.location.pathname}#watch=${roomId}`;
     const hostName = roomDraft.hostName.trim() || "我";
     const friendName = roomDraft.friendName.trim() || "好友";
@@ -1779,7 +1978,7 @@ function App() {
       },
       messages: [
         {
-          id: crypto.randomUUID(),
+          id: makeId(),
           author: "系统",
           text: `已为《${movie.title}》创建共看房间。正式上线后，这个链接会把好友带入同一个实时房间。`,
           createdAt: new Date().toISOString(),
@@ -1821,7 +2020,7 @@ function App() {
         messages: [
           ...current.messages,
           {
-            id: crypto.randomUUID(),
+            id: makeId(),
             author,
             text,
             createdAt: new Date().toISOString(),
@@ -1858,8 +2057,109 @@ function App() {
     update(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   }
 
+  const guideProfiles: Record<Tab, {
+    mascot: "cat" | "dog";
+    breed: string;
+    title: string;
+    usage: string;
+    tip: string;
+    talks: string[];
+  }> = {
+    home: {
+      mascot: "cat",
+      breed: "布偶猫",
+      title: "首页导览",
+      usage: "可以先搜索影片，也可以点快速选片；下方达人观后感会帮你从别人的视角发现新片。",
+      tip: "温馨 tips：如果不知道看什么，先看排行榜和达人视频，比硬想更省时间。",
+      talks: ["布偶猫正在帮你翻片单。", "想听达人怎么评价？往下滑看看。", "点一下达人视频，可以直接在影迹里播放。"],
+    },
+    library: {
+      mascot: "dog",
+      breed: "边牧",
+      title: "片单整理",
+      usage: "在这里新增影片、编辑影片信息、修改想看/在看/已看状态，也可以写评分和短评。",
+      tip: "温馨 tips：给影片加片单标签，以后找朋友安利或周末共看会更快。",
+      talks: ["边牧守着你的收藏夹。", "看完记得评分。", "今天要不要整理一下想看片单？"],
+    },
+    picker: {
+      mascot: "dog",
+      breed: "柯基",
+      title: "快速选片",
+      usage: "选择可用时间、心情、观看同伴和平台，系统会自动给你推荐候选影片。",
+      tip: "温馨 tips：点换一批可以跳过当前推荐，柯基会继续帮你找下一组。",
+      talks: ["柯基觉得今晚适合轻松一点。", "柯基跑去换一批片了。", "纠结的时候，把时间和心情交给这里。"],
+    },
+    rankings: {
+      mascot: "cat",
+      breed: "银渐层",
+      title: "排行榜",
+      usage: "这里可以看评分榜、热度榜和不同题材榜单，点击条目能打开影片详情。",
+      tip: "温馨 tips：排行榜适合快速补课，也适合找同学都看过的话题片。",
+      talks: ["银渐层正在优雅地排榜。", "高分片可以先收藏。", "想找热门讨论？看看热度榜。"],
+    },
+    watch: {
+      mascot: "dog",
+      breed: "拉布拉多",
+      title: "继续观看",
+      usage: "从上次进度继续播放，或者选择一部影片开始看，进度会记录到你的片单里。",
+      tip: "温馨 tips：看完后给个评分，后面的总结和推荐会更准。",
+      talks: ["拉布拉多已经帮你按下继续观看。", "需要小狗陪你一起看吗？", "别忘了记录看到哪里了。"],
+    },
+    party: {
+      mascot: "dog",
+      breed: "萨摩耶",
+      title: "一起看",
+      usage: "创建共看房间，选择影片和平台，把邀请链接发给同学，一边看一边聊天。",
+      tip: "温馨 tips：快来邀请你的好友一起看吧！需要萨摩耶陪你暖场也可以。",
+      talks: ["萨摩耶在催你发邀请。", "朋友来了就开场！", "一起看更适合吐槽和安利。"],
+    },
+    discussion: {
+      mascot: "cat",
+      breed: "狸花猫",
+      title: "讨论区",
+      usage: "选择一部影片，发布评论、回复同学观点，也可以给喜欢的观点点赞。",
+      tip: "温馨 tips：评论可以写感受、细节发现或适合推荐给谁。",
+      talks: ["狸花猫发现了一个隐藏细节。", "记得文明讨论。", "有想法就留下吧，别让灵感溜走。"],
+    },
+    summary: {
+      mascot: "cat",
+      breed: "黑猫",
+      title: "个人总结",
+      usage: "查看你的观影数量、时长、平均评分、类型偏好和代表作品。",
+      tip: "温馨 tips：这页适合复盘自己最近的观影口味。",
+      talks: ["黑猫在认真统计你的偏好。", "你最近看得不少。", "想知道自己偏爱什么类型？这里有答案。"],
+    },
+    settings: {
+      mascot: "cat",
+      breed: "缅因猫",
+      title: "个人主页",
+      usage: "完善昵称、性别和观影偏好，也可以发布达人观后感视频到首页。",
+      tip: "温馨 tips：注册资料越完整，推荐和达人展示越有个人特色。",
+      talks: ["缅因猫正在帮你打理主页。", "发布视频前记得写清观点。", "这里就是你的影迹名片。"],
+    },
+  };
+  const activeGuide = guideProfiles[activeTab];
+  const activeTalk = activeGuide.talks[guideMood % activeGuide.talks.length];
+
   return (
     <main>
+      <aside className="mascot-guide" aria-label="使用引导">
+        <div className={`mascot-model image-mascot ${activeGuide.mascot} mood-${guideMood % 3}`} aria-hidden="true">
+          <img
+            src={activeGuide.mascot === "cat" ? "/mascots/cat-3d.png" : "/mascots/dog-3d.png"}
+            alt=""
+          />
+        </div>
+        <div>
+          <strong>{activeGuide.title}</strong>
+          <p>{activeGuide.usage}</p>
+          <small>{activeGuide.breed}：{activeGuide.tip}</small>
+          <div className="mascot-chat">
+            <span>{activeTalk}</span>
+            <button type="button" onClick={() => setGuideMood((value) => value + 1)}>和它互动</button>
+          </div>
+        </div>
+      </aside>
       <aside className="rail" aria-label="主要导航">
         <div className="brand">
           <span className="brand-mark">影</span>
@@ -1876,8 +2176,9 @@ function App() {
             ["rankings", "排行榜"],
             ["watch", "观看"],
             ["party", "一起看"],
+            ["discussion", "讨论区"],
             ["summary", "个人总结"],
-            ["settings", "设置"],
+            ["settings", "个人主页"],
           ].map(([key, label]) => (
             <button
               className={activeTab === key ? "active" : ""}
@@ -1888,6 +2189,15 @@ function App() {
             </button>
           ))}
         </nav>
+        <div className="account-card">
+          <span>当前身份</span>
+          <strong>游客访问</strong>
+          <small>本机保存片单和评论草稿</small>
+          <div className="account-actions">
+            <button className="primary" onClick={() => setActiveTab("settings")}>登录账号</button>
+            <button onClick={() => setActiveTab("home")}>游客模式</button>
+          </div>
+        </div>
         <div className="subtitle-card">
           <span>字幕预览</span>
           <strong>{state.profile.subtitleScale}%</strong>
@@ -1898,6 +2208,17 @@ function App() {
       </aside>
 
       <section className="workspace">
+        <header className="mobile-app-bar">
+          <div className="brand">
+            <span className="brand-mark">影</span>
+            <div>
+              <strong>影迹</strong>
+              <small>CineList</small>
+            </div>
+          </div>
+          <button onClick={() => setActiveTab("settings")}>游客访问</button>
+        </header>
+
         {activeTab === "home" && (
           <HomeView
             rows={movieRows}
@@ -1911,10 +2232,15 @@ function App() {
             openPicker={() => setActiveTab("picker")}
             openLibrary={() => setActiveTab("library")}
             openParty={() => setActiveTab("party")}
+            openDiscussion={() => setActiveTab("discussion")}
+            openHistory={() => setActiveTab("watch")}
             updateRecord={updateRecord}
             startWatchParty={startWatchParty}
             startSoloWatch={startSoloWatch}
             openMovie={(movie) => setSelectedMovieId(movie.id)}
+            discussions={state.discussions}
+            talentReviews={state.talentReviews}
+            openTalentReview={(review) => setSelectedTalentReviewId(review.id)}
           />
         )}
 
@@ -1966,6 +2292,16 @@ function App() {
           />
         )}
 
+        {activeTab === "discussion" && (
+          <DiscussionView
+            rows={movieRows}
+            comments={state.discussions}
+            addDiscussion={addDiscussion}
+            likeDiscussion={likeDiscussion}
+            startWatchParty={startWatchParty}
+          />
+        )}
+
         {activeTab === "watch" && (
           <SoloWatchView
             rows={movieRows}
@@ -2000,6 +2336,12 @@ function App() {
             setProfile={(profile) => setState((current) => ({ ...current, profile }))}
             resetData={() => setState(createInitialState())}
             toggleArrayField={toggleArrayField}
+            movies={state.movies}
+            talentReviews={state.talentReviews}
+            talentDraft={talentDraft}
+            setTalentDraft={setTalentDraft}
+            publishTalentReview={publishTalentReview}
+            deleteTalentReview={deleteTalentReview}
           />
         )}
       </section>
@@ -2009,6 +2351,11 @@ function App() {
         updateRecord={updateRecord}
         startSoloWatch={startSoloWatch}
         startWatchParty={startWatchParty}
+      />
+      <TalentVideoModal
+        review={state.talentReviews.find((review) => review.id === selectedTalentReviewId)}
+        movie={state.movies.find((movie) => movie.id === state.talentReviews.find((review) => review.id === selectedTalentReviewId)?.movieId)}
+        close={() => setSelectedTalentReviewId(null)}
       />
     </main>
   );
@@ -2042,10 +2389,15 @@ function HomeView(props: {
   openPicker: () => void;
   openLibrary: () => void;
   openParty: () => void;
+  openDiscussion: () => void;
+  openHistory: () => void;
   updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
   startWatchParty: (movie: Movie, startSeconds?: number) => void;
   startSoloWatch: (movie: Movie, startSeconds?: number) => void;
   openMovie: (movie: Movie) => void;
+  discussions: DiscussionComment[];
+  talentReviews: TalentReview[];
+  openTalentReview: (review: TalentReview) => void;
 }) {
   const [submittedQuery, setSubmittedQuery] = useState("");
   const recent = props.rows
@@ -2108,10 +2460,37 @@ function HomeView(props: {
               快速选片
             </button>
           </form>
+          {submittedQuery.trim() && (
+            <div className="search-suggestions" aria-label="影片搜索结果">
+              <div className="search-suggestions-head">
+                <strong>搜索结果：{submittedQuery}</strong>
+                <span>{searchResults.length ? `${searchResults.length} 部影片` : "暂无匹配"}</span>
+              </div>
+              {searchResults.length ? (
+                <div className="search-suggestion-list">
+                  {searchResults.map(({ movie, record }) => (
+                    <button type="button" key={movie.id} onClick={() => props.openMovie(movie)}>
+                      <Poster movie={movie} className="small" />
+                      <div>
+                        <strong>{movie.title}</strong>
+                        <small>{movie.alias || movie.type} · {movie.year} · {record?.status ?? "未收藏"}</small>
+                        <p>{movie.summary || "点击查看影片详情、平台和评分信息。"}</p>
+                      </div>
+                      <em>查看详情</em>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="search-suggestion-empty">
+                  片库里没有找到匹配影片，可以换个关键词，或去“我的片单”新增影片。
+                </div>
+              )}
+            </div>
+          )}
           <div className="resume-strip" aria-label="继续观看进度">
             <div className="section-title">
               <h2>继续观看</h2>
-              <span>{progressRows.length ? "点击直接观看" : "暂无进度"}</span>
+              <button type="button" onClick={props.openHistory}>历史记录</button>
             </div>
             {progressRows.length ? (
               <div className="resume-list">
@@ -2120,7 +2499,7 @@ function HomeView(props: {
                   const startSeconds = Math.floor(movie.durationMinutes * 60 * (progress / 100));
                   return (
                     <button className="resume-item" key={movie.id} onClick={() => props.startSoloWatch(movie, startSeconds)}>
-                      <span className="poster small">{movie.poster}</span>
+                      <Poster movie={movie} className="small" />
                       <div>
                         <strong>{movie.title}</strong>
                         <i><span style={{ width: `${progress}%` }} /></i>
@@ -2146,77 +2525,67 @@ function HomeView(props: {
         </div>
       </section>
 
-      <Panel title="个人收藏">
-        <MovieGrid rows={recent} updateRecord={props.updateRecord} />
-      </Panel>
-
-      {submittedQuery.trim() && (
-        <section className="search-results">
-          <div className="section-title">
-            <h2>搜索结果：{submittedQuery}</h2>
-            <span>{searchResults.length ? `${searchResults.length} 部影片` : "暂无匹配"}</span>
+      <section className="talent-section">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Creator Picks</p>
+            <h2>达人观后感</h2>
           </div>
-          {searchResults.length ? (
-            <div className="result-grid">
-              {searchResults.map(({ movie, record }) => (
-                <article className="result-card" key={movie.id}>
-                  <span className="poster">{movie.poster}</span>
+          <button onClick={props.openLibrary}>先收藏喜欢的影片</button>
+        </div>
+        <div className="talent-grid">
+          {props.talentReviews.slice(0, 4).map((review) => {
+            const movie = props.rows.find((row) => row.movie.id === review.movieId)?.movie;
+            return (
+              <article className="talent-card" key={review.id}>
+                <button className="talent-video" type="button" onClick={() => props.openTalentReview(review)} aria-label={`播放${review.title}视频`}>
+                  <span>{movie?.poster ?? "影"}</span>
+                  <b>▶</b>
+                </button>
+                <div>
+                  <small>{movie?.title ?? "影片"} · {review.authorName}</small>
+                  <h3>{review.title}</h3>
+                  <p>{review.insight}</p>
+                  <div className="chips">
+                    {review.authorGenres.slice(0, 3).map((genre) => <span className="chip selected" key={genre}>{genre}</span>)}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="home-feature-grid">
+        <Panel title="观影讨论热区">
+          <div className="discussion-preview">
+            {props.discussions.slice(0, 3).map((comment) => {
+              const movie = props.rows.find((row) => row.movie.id === comment.movieId)?.movie;
+              return (
+                <article key={comment.id}>
+                  <Poster movie={movie} className="small" fallback="聊" />
                   <div>
-                    <div className="card-title">
-                      <h3>{movie.title}</h3>
-                      <span>{movie.year} · {movie.type}</span>
-                    </div>
-                    <p>{movie.alias} · {movie.durationMinutes} 分钟</p>
-                    <p>{movie.summary || "暂无简介"}</p>
-                    <div className="chips">
-                      {movie.genres.map((genre) => <span className="chip" key={genre}>{genre}</span>)}
-                    </div>
-                    <div className="platform-tags">
-                      {movie.platforms.length ? movie.platforms.map((platform) => (
-                        <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
-                          {platform.platformName} · {platform.watchType}
-                        </a>
-                      )) : <span>暂无平台信息</span>}
-                    </div>
-                  </div>
-                  <div className="result-actions">
-                    <button
-                      className="primary"
-                      onClick={() => props.updateRecord(movie.id, { status: "在看", progress: Math.max(record?.progress ?? 0, 10) })}
-                    >
-                      继续
-                    </button>
-                    <button onClick={() => props.startWatchParty(movie)}>共看</button>
-                  </div>
-                  <div className="result-rating">
-                    <RatingControl
-                      value={normalizeRating(record?.rating ?? 0)}
-                      onChange={(rating) => props.updateRecord(movie.id, { rating, status: rating > 0 ? "已看" : record?.status })}
-                    />
+                    <strong>{movie?.title ?? "影片讨论"}</strong>
+                    <p>{comment.text}</p>
+                    <small>{comment.likes} 赞 · {comment.author}</small>
                   </div>
                 </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState text="片库里没有找到匹配影片。可以换个关键词，或去“我的片单”新增影片信息。" />
-          )}
-
-          <div className="online-search">
-            <div className="section-title">
-              <h2>全网搜索</h2>
-              <span>{onlineTargets.length} 个入口</span>
-            </div>
-            <div className="online-grid">
-              {onlineTargets.map((target) => (
-                <a href={target.url} key={target.name} rel="noreferrer" target="_blank">
-                  <strong>{target.name}</strong>
-                  <span>{target.description}</span>
-                </a>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        </section>
-      )}
+          <button className="primary" onClick={props.openDiscussion}>进入讨论区</button>
+        </Panel>
+        <Panel title="片单灵感">
+          <div className="idea-board">
+            <span>周末共看局</span>
+            <span>下饭短剧</span>
+            <span>高分补课</span>
+            <span>朋友安利</span>
+          </div>
+          <p>把空白留给下一张片单：可以按心情、场景或朋友分组收藏。</p>
+          <button onClick={props.openLibrary}>整理我的片单</button>
+        </Panel>
+      </section>
 
       <section className="metric-grid">
         <Metric label="片库总数" value={props.rows.length} />
@@ -2239,7 +2608,7 @@ function HomeView(props: {
           <div className="compact-list">
             {props.recommendations.slice(0, 3).map(({ movie, reasons }) => (
               <article key={movie.id}>
-                <span className="poster small">{movie.poster}</span>
+                <Poster movie={movie} className="small" />
                 <div>
                   <strong>{movie.title}</strong>
                   <p>{reasons[0]}</p>
@@ -2255,7 +2624,7 @@ function HomeView(props: {
           <div className="compact-list">
             {(watching.length ? watching : recent).map(({ movie, record }) => (
               <article key={movie.id}>
-                <span className="poster small">{movie.poster}</span>
+                <Poster movie={movie} className="small" />
                 <div>
                   <strong>{movie.title}</strong>
                   <p>{record?.status ?? "未收藏"} · 进度 {record?.progress ?? 0}%</p>
@@ -2291,40 +2660,108 @@ function LibraryView(props: {
   editMovie: (movie: Movie) => void;
   deleteMovie: (id: string) => void;
 }) {
+  const [selectedList, setSelectedList] = useState("全部收藏");
+  const [newListName, setNewListName] = useState("");
+  const [customLists, setCustomLists] = useState<string[]>([]);
+  const [showEditor, setShowEditor] = useState(Boolean(props.editingId));
+  const [shareStatus, setShareStatus] = useState("");
+  useEffect(() => {
+    if (props.editingId) setShowEditor(true);
+  }, [props.editingId]);
+  const listNames = useMemo(() => {
+    const names = new Set<string>();
+    props.rows.forEach(({ record }) => record?.lists.forEach((name) => names.add(name)));
+    customLists.forEach((name) => names.add(name));
+    return ["全部收藏", ...Array.from(names).sort((a, b) => a.localeCompare(b, "zh-CN"))];
+  }, [customLists, props.rows]);
+  const visibleRows = selectedList === "全部收藏"
+    ? props.rows
+    : props.rows.filter(({ record }) => record?.lists.includes(selectedList));
+  const shareText = [
+    `影迹片单：${selectedList}`,
+    ...visibleRows.slice(0, 30).map(({ movie, record }, index) => `${index + 1}. ${movie.title}（${movie.type} · ${movie.year}）${record?.rating ? ` ${record.rating}分` : ""}`),
+  ].join("\n");
+
+  function addListName() {
+    const name = newListName.trim();
+    if (!name) return;
+    setCustomLists((current) => [...new Set([...current, name])]);
+    setSelectedList(name);
+    setNewListName("");
+  }
+
+  async function copyShareText() {
+    const ok = await copyText(shareText);
+    setShareStatus(ok ? "已复制分享片单" : "复制失败，请手动选择片单文字");
+  }
+
   return (
     <div className="page-stack">
-      <PageHeader title="我的片单" description="新增影片，维护收藏状态、优先级、评价和片单分类。" />
-      <form className="editor" onSubmit={props.saveMovie}>
-        <div className="form-grid">
-          <Input label="片名" value={props.form.title} onChange={(title) => props.setForm({ ...props.form, title })} required />
-          <Input label="英文名/别名" value={props.form.alias} onChange={(alias) => props.setForm({ ...props.form, alias })} />
-          <Input label="年份" value={props.form.year} onChange={(year) => props.setForm({ ...props.form, year })} />
-          <label>
-            内容形式
-            <select value={props.form.type} onChange={(event) => props.setForm({ ...props.form, type: event.target.value as ContentType })}>
-              {["电影", "剧集", "动漫", "纪录片", "综艺", "短剧"].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <Input label="类型" value={props.form.genres} onChange={(genres) => props.setForm({ ...props.form, genres })} />
-          <Input label="片长/单集分钟" value={props.form.durationMinutes} onChange={(durationMinutes) => props.setForm({ ...props.form, durationMinutes })} />
-          <Input label="封面字" value={props.form.poster} onChange={(poster) => props.setForm({ ...props.form, poster })} />
-          <Input label="平台" value={props.form.platforms} onChange={(platforms) => props.setForm({ ...props.form, platforms })} />
-          <Input label="导演" value={props.form.directors} onChange={(directors) => props.setForm({ ...props.form, directors })} />
-          <Input label="演员" value={props.form.actors} onChange={(actors) => props.setForm({ ...props.form, actors })} />
-          <label className="wide">
-            简介
-            <textarea value={props.form.summary} onChange={(event) => props.setForm({ ...props.form, summary: event.target.value })} />
-          </label>
+      <PageHeader title="我的片单" description="像收藏夹一样整理影片，自定义分类后可以一键分享。" />
+
+      <section className="collection-hero">
+        <div>
+          <p className="eyebrow">CineList Collections</p>
+          <h2>{selectedList}</h2>
+          <p>{visibleRows.length} 部影片 · 可按心情、平台、年份或朋友局自由分类。</p>
         </div>
-        <div className="actions">
-          <button className="primary" type="submit">
-            {props.editingId ? "保存修改" : "新增影片"}
+        <div className="collection-actions">
+          <button className="primary" onClick={() => setShowEditor((current) => !current)}>
+            {showEditor ? "收起新增" : "新增影片"}
           </button>
-          {props.editingId && <button type="button" onClick={props.cancelEdit}>取消编辑</button>}
+          <button onClick={copyShareText}>复制分享片单</button>
         </div>
-      </form>
+        {shareStatus && <p className="copy-status">{shareStatus}</p>}
+      </section>
+
+      <section className="collection-board">
+        <div className="folder-grid">
+          {listNames.map((name) => {
+            const count = name === "全部收藏" ? props.rows.length : props.rows.filter(({ record }) => record?.lists.includes(name)).length;
+            return (
+              <button className={`folder-card${selectedList === name ? " selected" : ""}`} key={name} onClick={() => setSelectedList(name)}>
+                <span>{name === "全部收藏" ? "全" : name.slice(0, 1)}</span>
+                <strong>{name}</strong>
+                <small>{count} 部影片</small>
+              </button>
+            );
+          })}
+        </div>
+        <div className="new-folder">
+          <input placeholder="新建分类，比如 周末治愈、朋友局、下饭短剧" value={newListName} onChange={(event) => setNewListName(event.target.value)} />
+          <button onClick={addListName}>新建分类</button>
+        </div>
+      </section>
+
+      {showEditor && (
+        <form className="editor compact-editor" onSubmit={props.saveMovie}>
+          <div className="form-grid">
+            <Input label="片名" value={props.form.title} onChange={(title) => props.setForm({ ...props.form, title })} required />
+            <Input label="英文名/别名" value={props.form.alias} onChange={(alias) => props.setForm({ ...props.form, alias })} />
+            <Input label="年份" value={props.form.year} onChange={(year) => props.setForm({ ...props.form, year })} />
+            <label>
+              内容形式
+              <select value={props.form.type} onChange={(event) => props.setForm({ ...props.form, type: event.target.value as ContentType })}>
+                {["电影", "剧集", "动漫", "纪录片", "综艺", "短剧"].map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <Input label="类型" value={props.form.genres} onChange={(genres) => props.setForm({ ...props.form, genres })} />
+            <Input label="平台" value={props.form.platforms} onChange={(platforms) => props.setForm({ ...props.form, platforms })} />
+            <label className="wide">
+              简介
+              <textarea value={props.form.summary} onChange={(event) => props.setForm({ ...props.form, summary: event.target.value })} />
+            </label>
+          </div>
+          <div className="actions">
+            <button className="primary" type="submit">
+              {props.editingId ? "保存修改" : "新增影片"}
+            </button>
+            {props.editingId && <button type="button" onClick={props.cancelEdit}>取消编辑</button>}
+          </div>
+        </form>
+      )}
 
       <section className="toolbar">
         <input placeholder="搜索片名、类型、英文名" value={props.query} onChange={(event) => props.setQuery(event.target.value)} />
@@ -2335,8 +2772,38 @@ function LibraryView(props: {
         </select>
       </section>
 
+      <section className="list-manager">
+        <div className="section-title">
+          <span>分类管理</span>
+          <small>给影片选择分类，片单会自动进入对应收藏夹。</small>
+        </div>
+        <div className="list-manage-grid">
+          {visibleRows.slice(0, 12).map(({ movie, record }) => (
+            <article key={movie.id}>
+              <Poster movie={movie} className="small" />
+              <div>
+                <strong>{movie.title}</strong>
+                <p>{record?.lists.length ? record.lists.join("、") : "还没有分类"}</p>
+              </div>
+              <select
+                value=""
+                onChange={(event) => {
+                  const name = event.target.value;
+                  if (!name) return;
+                  const lists = [...new Set([...(record?.lists ?? []), name])];
+                  props.updateRecord(movie.id, { lists });
+                }}
+              >
+                <option value="">加入分类</option>
+                {listNames.filter((name) => name !== "全部收藏").map((name) => <option key={name}>{name}</option>)}
+              </select>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <MovieGrid
-        rows={props.rows}
+        rows={visibleRows}
         updateRecord={props.updateRecord}
         editMovie={props.editMovie}
         deleteMovie={props.deleteMovie}
@@ -2412,7 +2879,7 @@ function PickerView(props: {
         {props.recommendations.length ? (
           props.recommendations.map(({ movie, record, score, reasons }) => (
             <article className="recommend-card" key={movie.id}>
-              <span className="poster">{movie.poster}</span>
+              <Poster movie={movie} />
               <div>
                 <div className="card-title">
                   <h3>{movie.title}</h3>
@@ -2526,7 +2993,7 @@ function SoloWatchView(props: {
               const startSeconds = Math.floor(movie.durationMinutes * 60 * (progress / 100));
               return (
                 <button className="watch-pick-card" key={movie.id} onClick={() => props.startSoloWatch(movie, startSeconds)}>
-                  <span className="poster">{movie.poster}</span>
+                  <Poster movie={movie} />
                   <div>
                     <strong>{movie.title}</strong>
                     <p>{movie.type} · {movie.year} · 进度 {progress}%</p>
@@ -2622,6 +3089,11 @@ function WatchPartyView(props: {
   updatePlayback: (patch: Partial<PlaybackState>, updatedBy?: string) => void;
 }) {
   const [movieSearch, setMovieSearch] = useState("");
+  const [chatPaneWidth, setChatPaneWidth] = useState(28);
+  const [videoHeight, setVideoHeight] = useState(560);
+  const [playbackUrl, setPlaybackUrl] = useState("");
+  const [playbackKey, setPlaybackKey] = useState(0);
+  const [copyStatus, setCopyStatus] = useState("");
   const selectedMovie = props.movies.find((movie) => movie.id === props.draft.movieId) ?? props.movies[0];
   const movieOptions = useMemo(() => {
     const keyword = movieSearch.trim().toLowerCase();
@@ -2647,12 +3119,18 @@ function WatchPartyView(props: {
     roomMovie?.platforms.find((platform) => platform.platformName === props.room?.platformName) ??
     selectedMovie?.platforms.find((platform) => platform.platformName === props.draft.platformName) ??
     selectedMovie?.platforms[0];
+  const embeddedPlaybackUrl = selectedPlatform ? playableUrl(selectedPlatform, roomMovie?.title ?? selectedMovie?.title ?? "") : "";
   const hostName = props.draft.hostName.trim() || "我";
   const friendName = props.draft.friendName.trim() || "好友";
+  useEffect(() => {
+    setPlaybackUrl(embeddedPlaybackUrl);
+    setPlaybackKey((current) => current + 1);
+  }, [embeddedPlaybackUrl]);
 
-  function copyInviteLink() {
+  async function copyInviteLink() {
     if (!props.room) return;
-    void navigator.clipboard?.writeText(props.room.inviteLink);
+    const ok = await copyText(props.room.inviteLink);
+    setCopyStatus(ok ? "邀请链接已复制" : "复制失败，请手动选中链接复制");
   }
 
   function changeMovie(movieId: string) {
@@ -2665,16 +3143,55 @@ function WatchPartyView(props: {
   }
 
   function playOnPlatform() {
-    if (!props.room || !selectedPlatform) return;
-    props.updatePlayback({ status: "播放中" });
-    openChatPopup();
-    window.open(playableUrl(selectedPlatform, roomMovie?.title ?? selectedMovie?.title ?? ""), "_blank", "noopener,noreferrer");
+    if (!selectedPlatform) return;
+    setPlaybackUrl(embeddedPlaybackUrl);
+    setPlaybackKey((current) => current + 1);
+    if (!props.room) {
+      props.createRoom();
+      return;
+    }
+    props.updatePlayback({ status: "\u64ad\u653e\u4e2d", positionSeconds: props.room.playback.positionSeconds || 0 });
   }
 
   function openChatPopup() {
     if (!props.room) return;
     const url = `/chat.html?room=${encodeURIComponent(props.room.id)}&author=${encodeURIComponent(hostName)}`;
     window.open(url, `cinelist-chat-${props.room.id}`, "width=390,height=620,resizable=yes,scrollbars=yes");
+  }
+
+  function startShellResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const shell = event.currentTarget.closest(".watch-party-shell") as HTMLElement | null;
+    if (!shell) return;
+    const rect = shell.getBoundingClientRect();
+    const updateWidth = (clientX: number) => {
+      const next = ((clientX - rect.left) / Math.max(rect.width, 1)) * 100;
+      setChatPaneWidth(Math.min(42, Math.max(20, next)));
+    };
+    updateWidth(event.clientX);
+    const handleMove = (moveEvent: globalThis.PointerEvent) => updateWidth(moveEvent.clientX);
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }
+
+  function startVideoResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = videoHeight;
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const nextHeight = startHeight + moveEvent.clientY - startY;
+      setVideoHeight(Math.min(920, Math.max(420, nextHeight)));
+    };
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
   }
 
   return (
@@ -2744,14 +3261,15 @@ function WatchPartyView(props: {
             <div className="invite-box">
               <span>邀请链接</span>
               <code>{props.room.inviteLink}</code>
-              <button onClick={copyInviteLink}>复制链接</button>
+              <button type="button" onClick={copyInviteLink}>复制链接</button>
+              {copyStatus && <small className="copy-status">{copyStatus}</small>}
             </div>
           )}
         </Panel>
 
         <Panel title="房间成员">
           <div className="room-movie">
-            <span className="poster">{roomMovie?.poster ?? "影"}</span>
+            <Poster movie={roomMovie} />
             <div>
               <h3>{roomMovie?.title ?? "请选择影片"}</h3>
               <p>{roomMovie?.alias} · {props.room?.platformName ?? props.draft.platformName}</p>
@@ -2768,6 +3286,128 @@ function WatchPartyView(props: {
         </Panel>
       </section>
 
+      <section
+        className="watch-party-shell"
+        style={{ gridTemplateColumns: `minmax(220px, ${chatPaneWidth}%) 12px minmax(0, 1fr)` }}
+      >
+        <aside className="watch-chat-pane">
+          <div className="section-title">
+            <span>爆米花聊天室</span>
+            <button disabled={!props.room} onClick={openChatPopup}>漂浮小窗</button>
+          </div>
+          <div className="watch-chat-scroll">
+            {(props.room?.messages ?? []).map((message) => (
+              <article className={message.author === "系统" ? "system-message" : ""} key={message.id}>
+                <strong>{message.author}</strong>
+                <p>{message.text}</p>
+                <span>{timeLabel(message.createdAt)}</span>
+              </article>
+            ))}
+            {!props.room && <EmptyState text="先开一个房间，第一句弹幕就等你了。" />}
+          </div>
+          <form className="chat-form shell-chat-form" onSubmit={props.sendMessage}>
+            <input
+              aria-label="聊天内容"
+              disabled={!props.room}
+              placeholder="边看边聊，吐槽也有进度条"
+              value={props.chatInput}
+              onChange={(event) => props.setChatInput(event.target.value)}
+            />
+            <button className="primary" disabled={!props.room} type="submit">发射</button>
+          </form>
+        </aside>
+
+        <button
+          aria-label="拖动调整聊天和影片宽度"
+          className="shell-resize-handle"
+          onPointerDown={startShellResize}
+          title="拖动调整大小"
+          type="button"
+        >
+          <span />
+        </button>
+
+        <section className="watch-video-pane">
+          <div className="video-frame" style={{ minHeight: `${videoHeight}px` }}>
+            <button
+              aria-label="拖动调整播放屏幕大小"
+              className="video-size-grip"
+              onPointerDown={startVideoResize}
+              title="按住拖动调整屏幕大小"
+              type="button"
+            >
+              <span />
+            </button>
+            {selectedPlatform ? (
+              <iframe
+                key={`${playbackUrl}-${playbackKey}`}
+                src={playbackUrl}
+                title="共看播放窗口"
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <div className="video-empty">
+                <span>{roomMovie?.poster ?? "?"}</span>
+                <p>暂时没有找到可播放入口</p>
+              </div>
+            )}
+          </div>
+          <div className="video-control-bar">
+            <div>
+              <strong>{roomMovie?.title ?? "还没选片"}</strong>
+              <p>
+                {props.room?.playback.status ?? "待开播"} · {secondsLabel(props.room?.playback.positionSeconds ?? 0)} ·
+                {props.room?.playback.playbackRate ?? 1}x
+              </p>
+            </div>
+            <div className="video-actions">
+              <button className="primary" disabled={!selectedPlatform} onClick={playOnPlatform}>
+                在壳内播放
+              </button>
+            </div>
+          </div>
+          <label className="progress-row">
+            <span>共看进度条</span>
+            <input
+              aria-label="调整共看进度"
+              type="range"
+              min="0"
+              max={Math.max((roomMovie?.durationMinutes ?? 90) * 60, 60)}
+              value={props.room?.playback.positionSeconds ?? 0}
+              onChange={(event) => props.updatePlayback({ positionSeconds: Number(event.target.value) })}
+              disabled={!props.room}
+            />
+          </label>
+          <div className="actions">
+            <button disabled={!selectedPlatform} onClick={playOnPlatform}>开播</button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "\u5df2\u6682\u505c" })}>歇一口</button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: Math.max((props.room?.playback.positionSeconds ?? 0) - 30, 0) })}>
+              倒带 30 秒
+            </button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: (props.room?.playback.positionSeconds ?? 0) + 30 })}>
+              快进 30 秒
+            </button>
+          </div>
+          <div className="segmented compact">
+            {[0.75, 1, 1.25, 1.5].map((rate) => (
+              <button
+                disabled={!props.room}
+                className={props.room?.playback.playbackRate === rate ? "selected" : ""}
+                key={rate}
+                onClick={() => props.updatePlayback({ playbackRate: rate })}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+          <p className="sync-meta">
+            本机进度：{props.room ? props.room.playback.updatedBy : "创建房间后可用"}
+          </p>
+          <p className="notice">播放会优先留在右侧壳子里。下方倍速、快进和后退会同步影迹本机进度；如果平台不开放控制接口，真实视频速度仍需用平台播放器自带按钮调整。</p>
+        </section>
+      </section>
       <section className="watch-layout">
         <Panel title="同步控制">
           <div className="sync-stage" aria-label="共看同步预览">
@@ -2792,7 +3432,7 @@ function WatchPartyView(props: {
             disabled={!props.room}
           />
           <div className="actions">
-            <button disabled={!props.room || !selectedPlatform} onClick={playOnPlatform}>
+            <button disabled={!selectedPlatform} onClick={playOnPlatform}>
               {selectedPlatform ? `播放并弹出聊天窗` : "暂无播放入口"}
             </button>
             <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "已暂停" })}>暂停</button>
@@ -2864,6 +3504,122 @@ function WatchPartyView(props: {
   );
 }
 
+function DiscussionView(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  comments: DiscussionComment[];
+  addDiscussion: (movieId: string, text: string, parentId?: string | null, author?: string) => void;
+  likeDiscussion: (commentId: string) => void;
+  startWatchParty: (movie: Movie, startSeconds?: number) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [selectedMovieId, setSelectedMovieId] = useState(props.rows[0]?.movie.id ?? "");
+  const [draft, setDraft] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const filteredRows = props.rows.filter(({ movie }) => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return true;
+    return [movie.title, movie.alias, movie.type, movie.genres.join(" ")].join(" ").toLowerCase().includes(keyword);
+  });
+  const selectedMovie = props.rows.find(({ movie }) => movie.id === selectedMovieId)?.movie ?? filteredRows[0]?.movie ?? props.rows[0]?.movie;
+  const movieComments = props.comments
+    .filter((comment) => comment.movieId === selectedMovie?.id && !comment.parentId)
+    .sort((a, b) => b.likes - a.likes || b.createdAt.localeCompare(a.createdAt));
+
+  function submitComment(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedMovie) return;
+    props.addDiscussion(selectedMovie.id, draft);
+    setDraft("");
+  }
+
+  function submitReply(parentId: string) {
+    if (!selectedMovie) return;
+    const text = replyDrafts[parentId]?.trim();
+    if (!text) return;
+    props.addDiscussion(selectedMovie.id, text, parentId);
+    setReplyDrafts((current) => ({ ...current, [parentId]: "" }));
+  }
+
+  if (!selectedMovie) return <EmptyState text="暂无影片可以讨论，先去片单里新增一部影片吧。" />;
+
+  return (
+    <div className="page-stack">
+      <PageHeader title="讨论区" description="按影片进入讨论树洞，游客和登录用户都可以评论、点赞和回复。" />
+      <section className="discussion-layout">
+        <aside className="discussion-sidebar">
+          <input placeholder="搜索影片" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <div className="discussion-movie-list">
+            {filteredRows.slice(0, 24).map(({ movie, record }) => (
+              <button className={movie.id === selectedMovie.id ? "selected" : ""} key={movie.id} onClick={() => setSelectedMovieId(movie.id)}>
+                <Poster movie={movie} className="small" />
+                <div>
+                  <strong>{movie.title}</strong>
+                  <small>{movie.type} · {record?.status ?? "未收藏"}</small>
+                </div>
+              </button>
+            ))}
+          </div>
+        </aside>
+        <section className="discussion-main">
+          <div className="discussion-hero">
+            <Poster movie={selectedMovie} />
+            <div>
+              <p className="eyebrow">{selectedMovie.type} · {selectedMovie.year}</p>
+              <h2>{selectedMovie.title}</h2>
+              <p>{selectedMovie.summary || "暂无简介，先从你的观后感聊起。"}</p>
+              <div className="chips">
+                {selectedMovie.genres.map((genre) => <span className="chip strong" key={genre}>{genre}</span>)}
+              </div>
+            </div>
+            <button onClick={() => props.startWatchParty(selectedMovie)}>一起看</button>
+          </div>
+          <form className="discussion-composer" onSubmit={submitComment}>
+            <textarea placeholder={`聊聊《${selectedMovie.title}》：名场面、槽点、适合谁看都可以。`} value={draft} onChange={(event) => setDraft(event.target.value)} />
+            <button className="primary" type="submit">发布评论</button>
+          </form>
+          <div className="discussion-tree">
+            {movieComments.length ? movieComments.map((comment) => {
+              const replies = props.comments
+                .filter((reply) => reply.parentId === comment.id)
+                .sort((a, b) => b.likes - a.likes || b.createdAt.localeCompare(a.createdAt));
+              return (
+                <article className="comment-card" key={comment.id}>
+                  <div className="comment-head">
+                    <strong>{comment.author}</strong>
+                    <span>{comment.likes} 赞</span>
+                  </div>
+                  <p>{comment.text}</p>
+                  <div className="actions">
+                    <button onClick={() => props.likeDiscussion(comment.id)}>点赞</button>
+                  </div>
+                  {replies.map((reply) => (
+                    <div className="comment-card reply" key={reply.id}>
+                      <div className="comment-head">
+                        <strong>{reply.author}</strong>
+                        <span>{reply.likes} 赞</span>
+                      </div>
+                      <p>{reply.text}</p>
+                      <button onClick={() => props.likeDiscussion(reply.id)}>点赞</button>
+                    </div>
+                  ))}
+                  <div className="reply-row">
+                    <input
+                      placeholder="回复这条评论"
+                      value={replyDrafts[comment.id] ?? ""}
+                      onChange={(event) => setReplyDrafts((current) => ({ ...current, [comment.id]: event.target.value }))}
+                    />
+                    <button onClick={() => submitReply(comment.id)}>回复</button>
+                  </div>
+                </article>
+              );
+            }) : <EmptyState text="还没有评论，来发第一条树洞吧。" />}
+          </div>
+        </section>
+      </section>
+    </div>
+  );
+}
+
 function SummaryView(props: {
   rows: { movie: Movie; record?: UserMovieRecord }[];
   summary: ReturnType<typeof calcSummary>;
@@ -2898,13 +3654,28 @@ function SettingsView(props: {
   setProfile: (profile: UserProfile) => void;
   resetData: () => void;
   toggleArrayField: <T extends string>(value: T, current: T[], update: (next: T[]) => void) => void;
+  movies: Movie[];
+  talentReviews: TalentReview[];
+  talentDraft: TalentReviewDraft;
+  setTalentDraft: (draft: TalentReviewDraft) => void;
+  publishTalentReview: (event: FormEvent) => void;
+  deleteTalentReview: (reviewId: string) => void;
 }) {
   const senior = props.profile.privacySettings.useAge && isSenior(props.profile.ageRange);
   return (
     <div className="page-stack">
-      <PageHeader title="设置" description="管理用户画像、常用平台、隐私控制和字幕辅助。" />
+      <PageHeader title="个人主页" description="完善注册资料，发布达人观后感视频，让同学从你的视角发现好片。" />
+      <section className="profile-hero">
+        <span className="brand-mark">达</span>
+        <div>
+          <p className="eyebrow">CineList Creator</p>
+          <h2>{props.profile.displayName || "影迹达人"}</h2>
+          <p>{props.profile.gender} · 偏好 {props.profile.favoriteGenres.slice(0, 4).join("、") || "暂未选择"} · 已发布 {props.talentReviews.length} 条观后感</p>
+        </div>
+      </section>
       <section className="settings-grid">
         <Panel title="用户画像">
+          <Input label="昵称" value={props.profile.displayName} onChange={(displayName) => props.setProfile({ ...props.profile, displayName })} />
           <label>
             年龄段
             <select value={props.profile.ageRange} onChange={(event) => props.setProfile({ ...props.profile, ageRange: event.target.value, manualSubtitle: false })}>
@@ -2921,7 +3692,7 @@ function SettingsView(props: {
         </Panel>
         <Panel title="推荐控制">
           <CheckboxGroup
-            label="喜欢类型"
+            label="爱好什么观影内容类型"
             options={genreOptions}
             values={props.profile.favoriteGenres}
             onChange={(favoriteGenres) => props.setProfile({ ...props.profile, favoriteGenres })}
@@ -2966,6 +3737,55 @@ function SettingsView(props: {
             这是一段字幕预览，用户手动设置后不会被年龄规则覆盖。
           </div>
         </Panel>
+        <Panel title="发布达人观后感">
+          <form className="creator-form" onSubmit={props.publishTalentReview}>
+            <label>
+              关联影片
+              <select value={props.talentDraft.movieId} onChange={(event) => props.setTalentDraft({ ...props.talentDraft, movieId: event.target.value })}>
+                {props.movies.map((movie) => <option value={movie.id} key={movie.id}>{movie.title}</option>)}
+              </select>
+            </label>
+            <Input
+              label="视频标题"
+              required
+              value={props.talentDraft.title}
+              onChange={(title) => props.setTalentDraft({ ...props.talentDraft, title })}
+            />
+            <Input
+              label="视频直链"
+              value={props.talentDraft.videoUrl}
+              onChange={(videoUrl) => props.setTalentDraft({ ...props.talentDraft, videoUrl })}
+            />
+            <p className="form-help">建议填写可以直接播放的 mp4 视频地址；不填时会使用影迹示例视频。</p>
+            <label>
+              观点简介
+              <textarea
+                required
+                value={props.talentDraft.insight}
+                onChange={(event) => props.setTalentDraft({ ...props.talentDraft, insight: event.target.value })}
+                placeholder="写下你对这部影片的见解，例如主题、镜头、人物或适合谁观看。"
+              />
+            </label>
+            <button className="primary" type="submit">发布到首页</button>
+          </form>
+        </Panel>
+        <Panel title="我的达人内容">
+          <div className="creator-list">
+            {props.talentReviews.length ? props.talentReviews.map((review) => {
+              const movie = props.movies.find((item) => item.id === review.movieId);
+              return (
+                <article key={review.id}>
+                  <Poster movie={movie} className="small" />
+                  <div>
+                    <strong>{review.title}</strong>
+                    <p>{movie?.title ?? "影片"} · {review.createdAt.slice(0, 10)}</p>
+                  </div>
+                  <button className="danger" onClick={() => props.deleteTalentReview(review.id)}>删除</button>
+                </article>
+              );
+            }) : <EmptyState text="还没有发布观后感，先发一条让首页更热闹。" />}
+          </div>
+        </Panel>
         <Panel title="数据管理">
           <p>数据保存在本机浏览器 localStorage。清空后会恢复内置示例数据。</p>
           <button className="danger" onClick={props.resetData}>恢复示例数据</button>
@@ -2988,7 +3808,7 @@ function MovieGrid(props: {
       {props.rows.map(({ movie, record }) => (
         <article className="movie-card" key={movie.id}>
           <div className="movie-top">
-            <span className="poster">{movie.poster}</span>
+            <Poster movie={movie} />
             <div>
               <h3>{movie.title}</h3>
               <p>{movie.alias || movie.type} · {movie.year} · {movie.durationMinutes} 分钟</p>
@@ -3322,7 +4142,7 @@ function RankList({
         {items.length ? items.map((item, index) => (
           <button className="rank-item" key={item.movie.id} onClick={() => onSelect?.(item.movie)}>
             <b>{index + 1}</b>
-            <span className="poster rank-poster">{item.movie.poster}</span>
+            <Poster movie={item.movie} className="rank-poster" />
             <div>
               <strong>{item.movie.title}</strong>
               <span>{item.movie.type} · {item.movie.year}</span>
@@ -3332,6 +4152,18 @@ function RankList({
         )) : <p>暂无数据</p>}
       </div>
     </section>
+  );
+}
+
+function Poster({ movie, className = "", fallback = "影" }: { movie?: Movie; className?: string; fallback?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!movie || failed) {
+    return <span className={`poster ${className}`.trim()}>{movie?.poster ?? fallback}</span>;
+  }
+  return (
+    <span className={`poster has-cover ${className}`.trim()}>
+      <img src={`/covers/${movie.id}.svg`} alt={`${movie.title}封面`} onError={() => setFailed(true)} />
+    </span>
   );
 }
 
@@ -3363,7 +4195,7 @@ function MovieDetailModal(props: {
       <article className="movie-modal" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close" onClick={props.close} aria-label="关闭详情">×</button>
         <div className="modal-head">
-          <span className="poster">{movie.poster}</span>
+          <Poster movie={movie} />
           <div>
             <p className="eyebrow">{movie.type} · {movie.year}</p>
             <h1>{movie.title}</h1>
@@ -3396,6 +4228,32 @@ function MovieDetailModal(props: {
           <button className="primary" onClick={() => props.startWatchParty(movie)}>
             邀请共看
           </button>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function TalentVideoModal(props: {
+  review?: TalentReview;
+  movie?: Movie;
+  close: () => void;
+}) {
+  if (!props.review) return null;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${props.review.title}视频`} onClick={props.close}>
+      <article className="talent-modal" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={props.close} aria-label="关闭视频">×</button>
+        <div className="talent-player">
+          <video controls src={props.review.videoUrl} preload="metadata">
+            当前浏览器暂不支持视频播放。
+          </video>
+        </div>
+        <p className="eyebrow">{props.movie?.title ?? "影片"} · {props.review.authorName}</p>
+        <h1>{props.review.title}</h1>
+        <p>{props.review.insight}</p>
+        <div className="chips">
+          {props.review.authorGenres.slice(0, 3).map((genre) => <span className="chip selected" key={genre}>{genre}</span>)}
         </div>
       </article>
     </div>

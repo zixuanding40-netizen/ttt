@@ -1,0 +1,219 @@
+{"kind":"deck","id":"pr/8ir6bf","name":"Deck"}
+{"kind":"layout","layoutId":"2b355463-dda4-44b2-932f-086b11c47f04","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"0ab4efe3-5b23-4be8-97a0-f5de35f70d78","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/gijhut","slide":1,"title":"影迹 CineList","textShapes":6}
+{"kind":"shape","id":"sh/r61kzip4","slide":1,"bbox":[76,68,1128,584]}
+{"kind":"textbox","id":"sh/sral8n6p","slide":1,"text":"影迹 CineList","textPreview":"影迹 CineList","textChars":11,"textLines":1,"bbox":[120,116,420,42]}
+{"kind":"shape","id":"sh/tsj21s7a","slide":1,"bbox":[120,166,118,4]}
+{"kind":"textbox","id":"sh/ets3axov","slide":1,"text":"影迹：从个人片单到多人观影账号系统","textPreview":"影迹：从个人片单到多人观影账号系统","textChars":17,"textLines":1,"bbox":[120,226,820,174]}
+{"kind":"textbox","id":"sh/fu1k32p0","slide":1,"text":"一个面向同学与个人用户的观影记录、选片推荐与账号数据保存网站。","textPreview":"一个面向同学与个人用户的观影记录、选片推荐与账号数据保存网站。","textChars":31,"textLines":1,"bbox":[124,438,740,82]}
+{"kind":"shape","id":"sh/gvalc76l","slide":1,"bbox":[946,176,156,210]}
+{"kind":"textbox","id":"sh/1wj25c76","slide":1,"text":"影","textPreview":"影","textChars":1,"textLines":1,"bbox":[982,212,82,86]}
+{"kind":"textbox","id":"sh/2xc3ehor","slide":1,"text":"片单 · 推荐 · 账号","textPreview":"片单 · 推荐 · 账号","textChars":12,"textLines":1,"bbox":[904,424,260,34]}
+{"kind":"textbox","id":"sh/3yl4725c","slide":1,"text":"系统演示汇报","textPreview":"系统演示汇报","textChars":6,"textLines":1,"bbox":[904,462,260,30]}
+{"kind":"notes","id":"nt/gijhut","slide":1,"text":""}
+{"kind":"slide","id":"sl/mp57dz","slide":2,"title":"01 / 系统定位","textShapes":14}
+{"kind":"textbox","id":"sh/r6tk7q18","slide":2,"text":"01 / 系统定位","textPreview":"01 / 系统定位","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/c721gvit","slide":2,"text":"影迹解决的是“想看很多，但管理很散”的问题","textPreview":"影迹解决的是“想看很多，但管理很散”的问题","textChars":21,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/d8b290je","slide":2,"text":"把片单、进度、评分、平台入口和个人偏好收拢到一个地方。","textPreview":"把片单、进度、评分、平台入口和个人偏好收拢到一个地方。","textChars":27,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/2h0ja1kr","slide":2,"bbox":[80,236,320,260]}
+{"kind":"textbox","id":"sh/3i9k361c","slide":2,"text":"面向群体","textPreview":"面向群体","textChars":4,"textLines":1,"bbox":[112,268,220,32]}
+{"kind":"shape","id":"sh/4ji1cb2x","slide":2,"bbox":[112,332,10,10]}
+{"kind":"textbox","id":"sh/pkr25gji","slide":2,"text":"普通观影用户","textPreview":"普通观影用户","textChars":6,"textLines":1,"bbox":[136,324,430,44]}
+{"kind":"shape","id":"sh/md43m50v","slide":2,"bbox":[112,382,10,10]}
+{"kind":"textbox","id":"sh/nedkfa1g","slide":2,"text":"同学朋友群体","textPreview":"同学朋友群体","textChars":6,"textLines":1,"bbox":[136,374,430,44]}
+{"kind":"shape","id":"sh/321czit4","slide":2,"bbox":[112,432,10,10]}
+{"kind":"textbox","id":"sh/21sv6dsj","slide":2,"text":"需要记录观影习惯的人","textPreview":"需要记录观影习惯的人","textChars":10,"textLines":1,"bbox":[136,424,430,44]}
+{"kind":"shape","id":"sh/p43u18bu","slide":2,"bbox":[480,236,320,260]}
+{"kind":"textbox","id":"sh/43ud83a9","slide":2,"text":"核心问题","textPreview":"核心问题","textChars":4,"textLines":1,"bbox":[512,268,220,32]}
+{"kind":"shape","id":"sh/r6lc3it0","slide":2,"bbox":[512,332,10,10]}
+{"kind":"textbox","id":"sh/q5cvadsf","slide":2,"text":"想看内容容易忘","textPreview":"想看内容容易忘","textChars":7,"textLines":1,"bbox":[536,324,430,44]}
+{"kind":"shape","id":"sh/ds3u5sr6","slide":2,"bbox":[512,382,10,10]}
+{"kind":"textbox","id":"sh/c7udcnal","slide":2,"text":"进度和评分分散","textPreview":"进度和评分分散","textChars":7,"textLines":1,"bbox":[536,374,430,44]}
+{"kind":"shape","id":"sh/zulc729w","slide":2,"bbox":[512,432,10,10]}
+{"kind":"textbox","id":"sh/etcvexsr","slide":2,"text":"不知道今晚看什么","textPreview":"不知道今晚看什么","textChars":8,"textLines":1,"bbox":[536,424,430,44]}
+{"kind":"shape","id":"sh/apgf61cz","slide":2,"bbox":[880,236,320,260]}
+{"kind":"textbox","id":"sh/vqpgzmt4","slide":2,"text":"系统目标","textPreview":"系统目标","textChars":4,"textLines":1,"bbox":[912,268,220,32]}
+{"kind":"textbox","id":"sh/wryx8rup","slide":2,"text":"让用户更快决定看什么，并长期保留自己的观影轨迹。","textPreview":"让用户更快决定看什么，并长期保留自己的观影轨迹。","textChars":24,"textLines":1,"bbox":[912,332,236,112]}
+{"kind":"textbox","id":"sh/xs7y1wba","slide":2,"text":"影迹 CineList · 02","textPreview":"影迹 CineList · 02","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/mp57dz","slide":2,"text":""}
+{"kind":"slide","id":"sl/dsfu0j","slide":3,"title":"02 / 功能总览","textShapes":16}
+{"kind":"textbox","id":"sh/kjq107ux","slide":3,"text":"02 / 功能总览","textPreview":"02 / 功能总览","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/zihk72tc","slide":3,"text":"系统围绕“记录、选择、回顾、共享”组织功能","textPreview":"系统围绕“记录、选择、回顾、共享”组织功能","textChars":21,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/yhojyxcr","slide":3,"text":"注册用户保存到 SQL Server，游客用户可以免登录体验。","textPreview":"注册用户保存到 SQL Server，游客用户可以免登录体验。","textChars":31,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/xgf25sb6","slide":3,"bbox":[86,238,320,112]}
+{"kind":"textbox","id":"sh/cf61w7ul","slide":3,"text":"片单管理","textPreview":"片单管理","textChars":4,"textLines":1,"bbox":[110,260,240,30]}
+{"kind":"textbox","id":"sh/bexk32t0","slide":3,"text":"新增影片、状态、优先级、评分和短评","textPreview":"新增影片、状态、优先级、评分和短评","textChars":17,"textLines":1,"bbox":[110,296,260,34]}
+{"kind":"shape","id":"sh/atojuxcf","slide":3,"bbox":[472,238,320,112]}
+{"kind":"textbox","id":"sh/psf21sbu","slide":3,"text":"快速选片","textPreview":"快速选片","textChars":4,"textLines":1,"bbox":[496,260,240,30]}
+{"kind":"textbox","id":"sh/or61snup","slide":3,"text":"按时间、心情、平台和类型推荐","textPreview":"按时间、心情、平台和类型推荐","textChars":14,"textLines":1,"bbox":[496,296,260,34]}
+{"kind":"shape","id":"sh/q1gvatkn","slide":3,"bbox":[858,238,320,112]}
+{"kind":"textbox","id":"sh/b2pw3e18","slide":3,"text":"观看进度","textPreview":"观看进度","textChars":4,"textLines":1,"bbox":[882,260,240,30]}
+{"kind":"textbox","id":"sh/c3ydcj2t","slide":3,"text":"记录继续观看和播放进度","textPreview":"记录继续观看和播放进度","textChars":11,"textLines":1,"bbox":[882,296,260,34]}
+{"kind":"shape","id":"sh/d4re5oje","slide":3,"bbox":[86,398,320,112]}
+{"kind":"textbox","id":"sh/2dgv69kr","slide":3,"text":"个人总结","textPreview":"个人总结","textChars":4,"textLines":1,"bbox":[110,420,240,30]}
+{"kind":"textbox","id":"sh/3ypwze1w","slide":3,"text":"统计数量、时长、评分和偏好","textPreview":"统计数量、时长、评分和偏好","textChars":13,"textLines":1,"bbox":[110,456,260,34]}
+{"kind":"shape","id":"sh/ozyd8j2h","slide":3,"bbox":[472,398,320,112]}
+{"kind":"textbox","id":"sh/p07e1oj2","slide":3,"text":"账号系统","textPreview":"账号系统","textChars":4,"textLines":1,"bbox":[496,420,240,30]}
+{"kind":"textbox","id":"sh/e9wv2pkf","slide":3,"text":"注册登录，数据按用户保存","textPreview":"注册登录，数据按用户保存","textChars":12,"textLines":1,"bbox":[496,456,260,34]}
+{"kind":"shape","id":"sh/fa5cvu10","slide":3,"bbox":[858,398,320,112]}
+{"kind":"textbox","id":"sh/j21kn6dg","slide":3,"text":"游客访问","textPreview":"游客访问","textChars":4,"textLines":1,"bbox":[882,420,240,30]}
+{"kind":"textbox","id":"sh/y1sje1wv","slide":3,"text":"无需登录，本机浏览器临时体验","textPreview":"无需登录，本机浏览器临时体验","textChars":14,"textLines":1,"bbox":[882,456,260,34]}
+{"kind":"textbox","id":"sh/l4j2pgvm","slide":3,"text":"影迹 CineList · 03","textPreview":"影迹 CineList · 03","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/dsfu0j","slide":3,"text":""}
+{"kind":"slide","id":"sl/cxxy7x","slide":4,"title":"03 / 演示路径","textShapes":17}
+{"kind":"textbox","id":"sh/nuh8rydo","slide":4,"text":"03 / 演示路径","textPreview":"03 / 演示路径","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/ovq9k3u9","slide":4,"text":"现场实操按一条用户旅程展开","textPreview":"现场实操按一条用户旅程展开","textChars":13,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/9gzqt8be","slide":4,"text":"从进入网站开始，展示游客体验和登录用户能力。","textPreview":"从进入网站开始，展示游客体验和登录用户能力。","textChars":22,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/ahsrmdcz","slide":4,"bbox":[96,308,138,118]}
+{"kind":"textbox","id":"sh/bi18vitk","slide":4,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[114,326,46,40]}
+{"kind":"textbox","id":"sh/wja9onu5","slide":4,"text":"打开网站","textPreview":"打开网站","textChars":4,"textLines":1,"bbox":[114,374,102,42]}
+{"kind":"shape","id":"sh/xkjqxsbq","slide":4,"bbox":[238,362,36,4]}
+{"kind":"shape","id":"sh/qlo7a9cv","slide":4,"bbox":[282,308,138,118]}
+{"kind":"textbox","id":"sh/rmx8jedg","slide":4,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[300,326,46,40]}
+{"kind":"textbox","id":"sh/3atoj2pg","slide":4,"text":"选择游客或登录","textPreview":"选择游客或登录","textChars":7,"textLines":1,"bbox":[300,374,102,42]}
+{"kind":"shape","id":"sh/29knaxov","slide":4,"bbox":[424,362,36,4]}
+{"kind":"shape","id":"sh/pcb6lc76","slide":4,"bbox":[468,308,138,118]}
+{"kind":"textbox","id":"sh/4b25c761","slide":4,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[486,326,46,40]}
+{"kind":"textbox","id":"sh/f6t4f2p4","slide":4,"text":"管理我的片单","textPreview":"管理我的片单","textChars":6,"textLines":1,"bbox":[486,374,102,42]}
+{"kind":"shape","id":"sh/u5kn6xoj","slide":4,"bbox":[610,362,36,4]}
+{"kind":"shape","id":"sh/h8b6hs7a","slide":4,"bbox":[654,308,138,118]}
+{"kind":"textbox","id":"sh/g7258n6p","slide":4,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[672,326,46,40]}
+{"kind":"textbox","id":"sh/7i94bip8","slide":4,"text":"快速选片推荐","textPreview":"快速选片推荐","textChars":6,"textLines":1,"bbox":[672,374,102,42]}
+{"kind":"shape","id":"sh/6h0nidon","slide":4,"bbox":[796,362,36,4]}
+{"kind":"shape","id":"sh/adgnudsf","slide":4,"bbox":[840,308,138,118]}
+{"kind":"textbox","id":"sh/ve9oni90","slide":4,"text":"5","textPreview":"5","textChars":1,"textLines":1,"bbox":[858,326,46,40]}
+{"kind":"textbox","id":"sh/wfipwnal","slide":4,"text":"查看排行榜与总结","textPreview":"查看排行榜与总结","textChars":8,"textLines":1,"bbox":[858,374,102,42]}
+{"kind":"shape","id":"sh/xgr6psr6","slide":4,"bbox":[982,362,36,4]}
+{"kind":"shape","id":"sh/ih07yxsr","slide":4,"bbox":[1026,308,138,118]}
+{"kind":"textbox","id":"sh/ji9ori9w","slide":4,"text":"6","textPreview":"6","textChars":1,"textLines":1,"bbox":[1044,326,46,40]}
+{"kind":"textbox","id":"sh/k3ip0nah","slide":4,"text":"账号数据保存","textPreview":"账号数据保存","textChars":6,"textLines":1,"bbox":[1044,374,102,42]}
+{"kind":"textbox","id":"sh/54r6tsr2","slide":4,"text":"演示建议：先点“跳过登录，以游客身份访问”，再展示注册登录的数据保存差异。","textPreview":"演示建议：先点“跳过登录，以游客身份访问”，再展示注册登录的数据保存差异。","textChars":37,"textLines":1,"bbox":[110,500,880,42]}
+{"kind":"textbox","id":"sh/65k72xsn","slide":4,"text":"影迹 CineList · 04","textPreview":"影迹 CineList · 04","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/cxxy7x","slide":4,"text":""}
+{"kind":"slide","id":"sl/8m50zo","slide":5,"title":"04 / 关键页面","textShapes":11}
+{"kind":"textbox","id":"sh/1k7et83m","slide":5,"text":"04 / 关键页面","textPreview":"04 / 关键页面","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/ehgvitkv","slide":5,"text":"首页承担“快速决策”的入口角色","textPreview":"首页承担“快速决策”的入口角色","textChars":15,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/fipwrylg","slide":5,"text":"用户可以搜索影片、继续观看、进入片单管理或快速选片。","textPreview":"用户可以搜索影片、继续观看、进入片单管理或快速选片。","textChars":26,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/onido32x","slide":5,"bbox":[90,226,700,330]}
+{"kind":"textbox","id":"sh/porex83i","slide":5,"text":"今晚看什么，交给一张会记忆的片单。","textPreview":"今晚看什么，交给一张会记忆的片单。","textChars":17,"textLines":1,"bbox":[132,268,560,116]}
+{"kind":"shape","id":"sh/2l0vmdkr","slide":5,"bbox":[132,418,420,48]}
+{"kind":"textbox","id":"sh/3m9wvylc","slide":5,"text":"搜索影片、类型或英文名","textPreview":"搜索影片、类型或英文名","textChars":11,"textLines":1,"bbox":[154,431,250,24]}
+{"kind":"shape","id":"sh/cbixsn29","slide":5,"bbox":[568,418,58,48]}
+{"kind":"textbox","id":"sh/dcre1sju","slide":5,"text":"搜","textPreview":"搜","textChars":1,"textLines":1,"bbox":[583,426,30,24]}
+{"kind":"shape","id":"sh/hwnmxcvi","slide":5,"bbox":[850,226,300,330]}
+{"kind":"textbox","id":"sh/gve547ex","slide":5,"text":"首页展示重点","textPreview":"首页展示重点","textChars":6,"textLines":1,"bbox":[884,260,220,32]}
+{"kind":"shape","id":"sh/vu54v2dc","slide":5,"bbox":[884,334,10,10]}
+{"kind":"textbox","id":"sh/u9cn2xwr","slide":5,"text":"继续观看进度","textPreview":"继续观看进度","textChars":6,"textLines":1,"bbox":[908,326,430,44]}
+{"kind":"shape","id":"sh/50nm1cve","slide":5,"bbox":[884,384,10,10]}
+{"kind":"textbox","id":"sh/4ze587et","slide":5,"text":"评分与热度榜","textPreview":"评分与热度榜","textChars":6,"textLines":1,"bbox":[908,376,430,44]}
+{"kind":"shape","id":"sh/3y54z2d8","slide":5,"bbox":[884,434,10,10]}
+{"kind":"textbox","id":"sh/ixwn6xwn","slide":5,"text":"快速选片入口","textPreview":"快速选片入口","textChars":6,"textLines":1,"bbox":[908,426,430,44]}
+{"kind":"textbox","id":"sh/l43mp8va","slide":5,"text":"影迹 CineList · 05","textPreview":"影迹 CineList · 05","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/8m50zo","slide":5,"text":""}
+{"kind":"slide","id":"sl/pfhurf","slide":6,"title":"05 / 数据保存","textShapes":12}
+{"kind":"textbox","id":"sh/dsnul4ja","slide":6,"text":"05 / 数据保存","textPreview":"05 / 数据保存","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/q5wvq90j","slide":6,"text":"登录用户和游客用户的数据边界清晰","textPreview":"登录用户和游客用户的数据边界清晰","textChars":16,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/r65cje14","slide":6,"text":"这让临时体验和长期使用可以同时存在。","textPreview":"这让临时体验和长期使用可以同时存在。","textChars":18,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/0vydwjil","slide":6,"bbox":[112,236,456,300]}
+{"kind":"textbox","id":"sh/1w7epoj6","slide":6,"text":"注册 / 登录用户","textPreview":"注册 / 登录用户","textChars":9,"textLines":1,"bbox":[152,274,300,36]}
+{"kind":"shape","id":"sh/etwvu90f","slide":6,"bbox":[152,348,10,10]}
+{"kind":"textbox","id":"sh/fu5cne10","slide":6,"text":"JWT 保持登录状态","textPreview":"JWT 保持登录状态","textChars":10,"textLines":1,"bbox":[176,340,430,44]}
+{"kind":"shape","id":"sh/ozyd03ix","slide":6,"bbox":[152,398,10,10]}
+{"kind":"textbox","id":"sh/p07etoj2","slide":6,"text":"数据同步到 SQL Server","textPreview":"数据同步到 SQL Server","textChars":16,"textLines":1,"bbox":[176,390,430,44]}
+{"kind":"shape","id":"sh/5sbu5kza","slide":6,"bbox":[152,448,10,10]}
+{"kind":"textbox","id":"sh/4r2tcfyp","slide":6,"text":"不同用户数据互不影响","textPreview":"不同用户数据互不影响","textChars":10,"textLines":1,"bbox":[176,440,430,44]}
+{"kind":"shape","id":"sh/3qtc3ah4","slide":6,"bbox":[712,236,456,300]}
+{"kind":"textbox","id":"sh/ipkba5gj","slide":6,"text":"游客访问","textPreview":"游客访问","textChars":4,"textLines":1,"bbox":[752,274,300,36]}
+{"kind":"shape","id":"sh/dgvu9kf6","slide":6,"bbox":[752,348,10,10]}
+{"kind":"textbox","id":"sh/cvmtgfyl","slide":6,"text":"无需注册，直接体验","textPreview":"无需注册，直接体验","textChars":9,"textLines":1,"bbox":[776,340,430,44]}
+{"kind":"shape","id":"sh/rudc7uxg","slide":6,"bbox":[752,398,10,10]}
+{"kind":"textbox","id":"sh/qt4bepgv","slide":6,"text":"数据只保存在当前浏览器","textPreview":"数据只保存在当前浏览器","textChars":11,"textLines":1,"bbox":[776,390,430,44]}
+{"kind":"shape","id":"sh/tkrax0z2","slide":6,"bbox":[752,448,10,10]}
+{"kind":"textbox","id":"sh/8zit4vyh","slide":6,"text":"适合演示和临时使用","textPreview":"适合演示和临时使用","textChars":9,"textLines":1,"bbox":[776,440,430,44]}
+{"kind":"textbox","id":"sh/k3mtkv6d","slide":6,"text":"影迹 CineList · 06","textPreview":"影迹 CineList · 06","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/pfhurf","slide":6,"text":""}
+{"kind":"slide","id":"sl/qrkyrq","slide":7,"title":"06 / 技术架构","textShapes":16}
+{"kind":"textbox","id":"sh/ozuhgryp","slide":7,"text":"06 / 技术架构","textPreview":"06 / 技术架构","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/3ylgnmx4","slide":7,"text":"前端、后端、数据库由 Nginx 串联成公网服务","textPreview":"前端、后端、数据库由 Nginx 串联成公网服务","textChars":24,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/2xczehgj","slide":7,"text":"本地开发验证后，再把发布物部署到 Windows Server。","textPreview":"本地开发验证后，再把发布物部署到 Windows Server。","textChars":32,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/xonytwf6","slide":7,"bbox":[88,292,220,124]}
+{"kind":"textbox","id":"sh/cnehkryl","slide":7,"text":"用户浏览器","textPreview":"用户浏览器","textChars":5,"textLines":1,"bbox":[112,318,170,30]}
+{"kind":"textbox","id":"sh/b25grmx0","slide":7,"text":"访问公网 IP","textPreview":"访问公网 IP","textChars":7,"textLines":1,"bbox":[112,360,170,36]}
+{"kind":"textbox","id":"sh/a1wzihgf","slide":7,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[324,330,48,50]}
+{"kind":"shape","id":"sh/tsjyhcz2","slide":7,"bbox":[380,292,220,124]}
+{"kind":"textbox","id":"sh/srah87yh","slide":7,"text":"Nginx","textPreview":"Nginx","textChars":5,"textLines":1,"bbox":[404,318,170,30]}
+{"kind":"textbox","id":"sh/qdgfi1wn","slide":7,"text":"托管 dist / 代理 API","textPreview":"托管 dist / 代理 API","textChars":16,"textLines":1,"bbox":[404,360,170,36]}
+{"kind":"textbox","id":"sh/bepwb6x8","slide":7,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[616,330,48,50]}
+{"kind":"shape","id":"sh/cfyxkbet","slide":7,"bbox":[672,292,220,124]}
+{"kind":"textbox","id":"sh/dgredgfe","slide":7,"text":"Express API","textPreview":"Express API","textChars":11,"textLines":1,"bbox":[696,318,170,30]}
+{"kind":"textbox","id":"sh/yh0fmlwj","slide":7,"text":"注册登录 / 状态读写","textPreview":"注册登录 / 状态读写","textChars":11,"textLines":1,"bbox":[696,360,170,36]}
+{"kind":"textbox","id":"sh/zi9wfqx4","slide":7,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[908,330,48,50]}
+{"kind":"shape","id":"sh/0jixovep","slide":7,"bbox":[964,292,220,124]}
+{"kind":"textbox","id":"sh/lkrehgfa","slide":7,"text":"SQL Server","textPreview":"SQL Server","textChars":10,"textLines":1,"bbox":[988,318,170,30]}
+{"kind":"textbox","id":"sh/ml0fqlwv","slide":7,"text":"Users / UserAppStates","textPreview":"Users / UserAppStates","textChars":21,"textLines":1,"bbox":[988,360,170,36]}
+{"kind":"textbox","id":"sh/nm9wjqxg","slide":7,"text":"核心技术：React + TypeScript + Vite / Node.js + Express / SQL Server / Nginx","textPreview":"核心技术：React + TypeScript + Vite / Node.js + Express / SQL Server / Nginx","textChars":71,"textLines":1,"bbox":[104,500,920,36]}
+{"kind":"textbox","id":"sh/jatw7qt8","slide":7,"text":"影迹 CineList · 07","textPreview":"影迹 CineList · 07","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/qrkyrq","slide":7,"text":""}
+{"kind":"slide","id":"sl/x7k3z4","slide":8,"title":"07 / 当前成果","textShapes":13}
+{"kind":"textbox","id":"sh/14re10r6","slide":8,"text":"07 / 当前成果","textPreview":"07 / 当前成果","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/eh0v6lsf","slide":8,"text":"影迹已经从静态页面升级为可多人使用的网站","textPreview":"影迹已经从静态页面升级为可多人使用的网站","textChars":20,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/f29wzq90","slide":8,"text":"系统完成了公网访问、账号保存和游客体验三条关键链路。","textPreview":"系统完成了公网访问、账号保存和游客体验三条关键链路。","textChars":26,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/o72dcvah","slide":8,"bbox":[104,278,220,150]}
+{"kind":"textbox","id":"sh/p8be50r2","slide":8,"text":"已完成","textPreview":"已完成","textChars":3,"textLines":1,"bbox":[130,308,150,54]}
+{"kind":"textbox","id":"sh/250va5sr","slide":8,"text":"公网访问","textPreview":"公网访问","textChars":4,"textLines":1,"bbox":[130,376,150,30]}
+{"kind":"shape","id":"sh/n6tw3a9c","slide":8,"bbox":[386,278,220,150]}
+{"kind":"textbox","id":"sh/4byd0bad","slide":8,"text":"已接入","textPreview":"已接入","textChars":3,"textLines":1,"bbox":[412,308,150,54]}
+{"kind":"textbox","id":"sh/5c7utgby","slide":8,"text":"注册登录","textPreview":"注册登录","textChars":4,"textLines":1,"bbox":[412,376,150,30]}
+{"kind":"shape","id":"sh/xw7i5wf2","slide":8,"bbox":[668,278,220,150]}
+{"kind":"textbox","id":"sh/wvy1wreh","slide":8,"text":"已验证","textPreview":"已验证","textChars":3,"textLines":1,"bbox":[694,308,150,54]}
+{"kind":"textbox","id":"sh/bup03mxw","slide":8,"text":"SQL 保存","textPreview":"SQL 保存","textChars":6,"textLines":1,"bbox":[694,376,150,30]}
+{"kind":"shape","id":"sh/atgju1wb","slide":8,"bbox":[950,278,220,150]}
+{"kind":"textbox","id":"sh/l0ri9gfy","slide":8,"text":"已新增","textPreview":"已新增","textChars":3,"textLines":1,"bbox":[976,308,150,54]}
+{"kind":"textbox","id":"sh/kzi10bed","slide":8,"text":"游客访问","textPreview":"游客访问","textChars":4,"textLines":1,"bbox":[976,376,150,30]}
+{"kind":"textbox","id":"sh/jy9076xs","slide":8,"text":"从“本机 localStorage 原型”到“服务器数据库保存”，系统边界已经完成一次关键升级。","textPreview":"从“本机 localStorage 原型”到“服务器数据库保存”，系统边界已经完成一次关键升级。","textChars":48,"textLines":1,"bbox":[112,512,900,42]}
+{"kind":"textbox","id":"sh/yx0jy1w7","slide":8,"text":"影迹 CineList · 08","textPreview":"影迹 CineList · 08","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/x7k3z4","slide":8,"text":""}
+{"kind":"slide","id":"sl/5uqi45","slide":9,"title":"08 / 仍然不足","textShapes":11}
+{"kind":"textbox","id":"sh/n61k3ah4","slide":9,"text":"08 / 仍然不足","textPreview":"08 / 仍然不足","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/87alwfyp","slide":9,"text":"系统可用，但还不是完整的产品级平台","textPreview":"系统可用，但还不是完整的产品级平台","textChars":17,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/98j25kzu","slide":9,"text":"当前短板集中在账号能力、数据模型、实时协作和部署自动化。","textPreview":"当前短板集中在账号能力、数据模型、实时协作和部署自动化。","textChars":28,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"shape","id":"sh/a9s3y5gf","slide":9,"bbox":[126,244,10,10]}
+{"kind":"textbox","id":"sh/va1k7ah0","slide":9,"text":"游客数据不能跨设备保存","textPreview":"游客数据不能跨设备保存","textChars":11,"textLines":1,"bbox":[150,236,430,44]}
+{"kind":"shape","id":"sh/wbal0fyl","slide":9,"bbox":[126,306,10,10]}
+{"kind":"textbox","id":"sh/xcjm9kz6","slide":9,"text":"缺少找回密码和修改密码","textPreview":"缺少找回密码和修改密码","textChars":11,"textLines":1,"bbox":[150,298,430,44]}
+{"kind":"shape","id":"sh/qdojmlgb","slide":9,"bbox":[126,368,10,10]}
+{"kind":"textbox","id":"sh/bexkvqhw","slide":9,"text":"用户状态仍以 JSON 整体保存","textPreview":"用户状态仍以 JSON 整体保存","textChars":16,"textLines":1,"bbox":[150,360,430,44]}
+{"kind":"shape","id":"sh/fy1sf6pw","slide":9,"bbox":[126,430,10,10]}
+{"kind":"textbox","id":"sh/uxsrm1ob","slide":9,"text":"一起看还没有 WebSocket 实时同步","textPreview":"一起看还没有 WebSocket 实时同步","textChars":21,"textLines":1,"bbox":[150,422,430,44]}
+{"kind":"shape","id":"sh/hk3ahg7m","slide":9,"bbox":[126,492,10,10]}
+{"kind":"textbox","id":"sh/gza9ob61","slide":9,"text":"缺少管理员后台和自动化部署","textPreview":"缺少管理员后台和自动化部署","textChars":13,"textLines":1,"bbox":[150,484,430,44]}
+{"kind":"shape","id":"sh/7u1sb6pk","slide":9,"bbox":[778,256,330,230]}
+{"kind":"textbox","id":"sh/6tsri18z","slide":9,"text":"判断","textPreview":"判断","textChars":2,"textLines":1,"bbox":[814,292,150,34]}
+{"kind":"textbox","id":"sh/twjadw7q","slide":9,"text":"现在适合课程演示和小范围试用，下一步要补齐长期运营能力。","textPreview":"现在适合课程演示和小范围试用，下一步要补齐长期运营能力。","textChars":28,"textLines":1,"bbox":[814,350,250,94]}
+{"kind":"textbox","id":"sh/8va9kr65","slide":9,"text":"影迹 CineList · 09","textPreview":"影迹 CineList · 09","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/5uqi45","slide":9,"text":""}
+{"kind":"slide","id":"sl/0qjs8l","slide":10,"title":"09 / 优化计划","textShapes":10}
+{"kind":"textbox","id":"sh/e5o3ap8v","slide":10,"text":"09 / 优化计划","textPreview":"09 / 优化计划","textChars":9,"textLines":1,"bbox":[72,48,520,28]}
+{"kind":"textbox","id":"sh/18fm54r6","slide":10,"text":"下一阶段把影迹从可用推向更稳定、更智能","textPreview":"下一阶段把影迹从可用推向更稳定、更智能","textChars":19,"textLines":1,"bbox":[72,88,940,70]}
+{"kind":"textbox","id":"sh/g765czql","slide":10,"text":"优先处理账号完整性、数据结构和多人协作。","textPreview":"优先处理账号完整性、数据结构和多人协作。","textChars":20,"textLines":1,"bbox":[74,160,920,40]}
+{"kind":"textbox","id":"sh/r2d4zu94","slide":10,"text":"近期","textPreview":"近期","textChars":2,"textLines":1,"bbox":[116,258,110,34]}
+{"kind":"shape","id":"sh/61436p8j","slide":10,"bbox":[248,240,820,78]}
+{"kind":"textbox","id":"sh/t4fm1kra","slide":10,"text":"完善密码修改、找回密码、游客数据导入账号","textPreview":"完善密码修改、找回密码、游客数据导入账号","textChars":20,"textLines":1,"bbox":[282,262,720,30]}
+{"kind":"textbox","id":"sh/s36l8zqp","slide":10,"text":"中期","textPreview":"中期","textChars":2,"textLines":1,"bbox":[116,378,110,34]}
+{"kind":"shape","id":"sh/jyd4va98","slide":10,"bbox":[248,360,820,78]}
+{"kind":"textbox","id":"sh/id4325sn","slide":10,"text":"拆分电影、评分、记录等业务表，支持更细统计","textPreview":"拆分电影、评分、记录等业务表，支持更细统计","textChars":21,"textLines":1,"bbox":[282,382,720,30]}
+{"kind":"textbox","id":"sh/cj61836t","slide":10,"text":"后期","textPreview":"后期","textChars":2,"textLines":1,"bbox":[116,498,110,34]}
+{"kind":"shape","id":"sh/xkfih87e","slide":10,"bbox":[248,480,820,78]}
+{"kind":"textbox","id":"sh/ahoj6ton","slide":10,"text":"WebSocket 共看房间、管理员后台、自动化部署","textPreview":"WebSocket 共看房间、管理员后台、自动化部署","textChars":26,"textLines":1,"bbox":[282,502,720,30]}
+{"kind":"textbox","id":"sh/bix0fyp8","slide":10,"text":"影迹 CineList · 10","textPreview":"影迹 CineList · 10","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/0qjs8l","slide":10,"text":""}
+{"kind":"slide","id":"sl/o8pu1d","slide":11,"title":"结论","textShapes":6}
+{"kind":"textbox","id":"sh/9o3i947q","slide":11,"text":"结论","textPreview":"结论","textChars":2,"textLines":1,"bbox":[86,74,240,38]}
+{"kind":"textbox","id":"sh/m1czyp8z","slide":11,"text":"影迹已经具备完整演示闭环","textPreview":"影迹已经具备完整演示闭环","textChars":12,"textLines":1,"bbox":[86,156,760,80]}
+{"kind":"textbox","id":"sh/n2l07upk","slide":11,"text":"它能展示一个观影管理系统如何从个人片单工具，逐步演进为支持账号、数据库和公网访问的多人网站。","textPreview":"它能展示一个观影管理系统如何从个人片单工具，逐步演进为支持账号、数据库和公网访问的多人网站。","textChars":46,"textLines":1,"bbox":[90,270,820,86]}
+{"kind":"shape","id":"sh/wreh4jqh","slide":11,"bbox":[90,430,300,84]}
+{"kind":"textbox","id":"sh/xsnid47m","slide":11,"text":"立即演示","textPreview":"立即演示","textChars":4,"textLines":1,"bbox":[120,452,200,30]}
+{"kind":"textbox","id":"sh/apwz298b","slide":11,"text":"http://8.210.26.129","textPreview":"http://8.210.26.129","textChars":19,"textLines":1,"bbox":[120,486,220,22]}
+{"kind":"textbox","id":"sh/vq50bepw","slide":11,"text":"影迹 CineList · 11","textPreview":"影迹 CineList · 11","textChars":16,"textLines":1,"bbox":[72,674,260,24]}
+{"kind":"notes","id":"nt/o8pu1d","slide":11,"text":""}

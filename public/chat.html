@@ -101,6 +101,32 @@
         background: #0d6549;
         cursor: pointer;
       }
+
+      #playback {
+        display: grid;
+        gap: 8px;
+        padding: 12px 16px;
+        border-bottom: 1px solid #ddd9ce;
+        background: #edf7f1;
+      }
+
+      #playback strong {
+        color: #0d6549;
+      }
+
+      #playback .controls {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      #playback button {
+        min-height: 34px;
+        padding: 0 8px;
+        border-color: #b9d5c7;
+        color: #0d6549;
+        background: #fffefa;
+      }
     </style>
   </head>
   <body>
@@ -109,6 +135,16 @@
         <h1 id="title">影迹聊天</h1>
         <small>可以把这个窗口放在播放窗口旁边</small>
       </header>
+      <section id="playback">
+        <strong id="playback-status">等待同步</strong>
+        <span id="playback-meta">创建房间后会显示播放进度</span>
+        <div class="controls">
+          <button id="play">播放</button>
+          <button id="pause">暂停</button>
+          <button id="back">后退 30 秒</button>
+          <button id="forward">前进 30 秒</button>
+        </div>
+      </section>
       <section id="messages"></section>
       <form id="form">
         <input id="input" placeholder="边看边聊" autocomplete="off" />
@@ -121,8 +157,15 @@
       const messages = document.getElementById("messages");
       const form = document.getElementById("form");
       const input = document.getElementById("input");
+      const playbackStatus = document.getElementById("playback-status");
+      const playbackMeta = document.getElementById("playback-meta");
+      const play = document.getElementById("play");
+      const pause = document.getElementById("pause");
+      const back = document.getElementById("back");
+      const forward = document.getElementById("forward");
       const params = new URLSearchParams(location.search);
       const author = params.get("author") || "我";
+      let currentPlayback = null;
 
       function timeLabel(value) {
         try {
@@ -149,12 +192,37 @@
         messages.scrollTop = messages.scrollHeight;
       }
 
+      function secondsLabel(value) {
+        const total = Math.max(0, Math.round(Number(value) || 0));
+        const minutes = Math.floor(total / 60);
+        const seconds = String(total % 60).padStart(2, "0");
+        return `${minutes}:${seconds}`;
+      }
+
+      function renderPlayback(playback) {
+        currentPlayback = playback || currentPlayback;
+        if (!currentPlayback) return;
+        playbackStatus.textContent = currentPlayback.status || "已暂停";
+        playbackMeta.textContent = `${secondsLabel(currentPlayback.positionSeconds)} · ${currentPlayback.playbackRate || 1}x · ${currentPlayback.updatedBy || "我"} ${timeLabel(currentPlayback.updatedAt)}`;
+      }
+
+      function sendPlayback(patch) {
+        if (!channel) return;
+        channel.postMessage({ type: "playback-command", patch, author });
+      }
+
       channel && (channel.onmessage = (event) => {
         if (event.data && event.data.type === "room-state") {
           title.textContent = `${event.data.title} · 聊天`;
           render(event.data.messages || []);
+          renderPlayback(event.data.playback);
         }
       });
+
+      play.addEventListener("click", () => sendPlayback({ status: "播放中" }));
+      pause.addEventListener("click", () => sendPlayback({ status: "已暂停" }));
+      back.addEventListener("click", () => sendPlayback({ positionSeconds: Math.max((currentPlayback?.positionSeconds || 0) - 30, 0) }));
+      forward.addEventListener("click", () => sendPlayback({ positionSeconds: (currentPlayback?.positionSeconds || 0) + 30 }));
 
       form.addEventListener("submit", (event) => {
         event.preventDefault();

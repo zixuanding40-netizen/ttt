@@ -1,0 +1,4165 @@
+﻿import { FormEvent, useEffect, useMemo, useState } from "react";
+
+type Tab = "home" | "library" | "picker" | "rankings" | "watch" | "party" | "discussion" | "summary" | "settings";
+type MovieStatus = "鎯崇湅" | "鍦ㄧ湅" | "宸茬湅" | "鏆傚仠" | "寮冪湅";
+type Priority = "寰堟兂鐪? | "鏈夋椂闂寸湅" | "闅忕紭鐪?;
+type ContentType = "鐢靛奖" | "鍓ч泦" | "鍔ㄦ极" | "绾綍鐗? | "缁艰壓" | "鐭墽";
+type Mood = "杞绘澗" | "鍒烘縺" | "娌绘剤" | "鐑ц剳";
+type Companion = "鐙嚜" | "鎯呬荆" | "鏈嬪弸" | "瀹跺涵";
+
+type PlatformAvailability = {
+  platformName: string;
+  region: string;
+  watchType: string;
+  url: string;
+  lastCheckedAt: string;
+  available: boolean;
+};
+
+type Movie = {
+  id: string;
+  title: string;
+  alias: string;
+  year: number;
+  type: ContentType;
+  genres: string[];
+  durationMinutes: number;
+  poster: string;
+  summary: string;
+  directors: string[];
+  actors: string[];
+  moods: Mood[];
+  companions: Companion[];
+  platforms: PlatformAvailability[];
+};
+
+type UserMovieRecord = {
+  movieId: string;
+  status: MovieStatus;
+  priority: Priority;
+  lists: string[];
+  progress: number;
+  rating: number;
+  review: string;
+  watchDate: string;
+  watchPlatform: string;
+  tags: string[];
+  companions: Companion[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type UserProfile = {
+  ageRange: string;
+  gender: string;
+  region: string;
+  favoriteGenres: string[];
+  commonPlatforms: string[];
+  subtitleScale: number;
+  manualSubtitle: boolean;
+  privacySettings: {
+    useAge: boolean;
+    useGender: boolean;
+  };
+};
+
+type AppState = {
+  movies: Movie[];
+  records: Record<string, UserMovieRecord>;
+  profile: UserProfile;
+  discussions: Record<string, DiscussionComment[]>;
+};
+
+type MovieForm = {
+  title: string;
+  alias: string;
+  year: string;
+  type: ContentType;
+  genres: string;
+  durationMinutes: string;
+  poster: string;
+  summary: string;
+  directors: string;
+  actors: string;
+  platforms: string;
+};
+
+type PickerInput = {
+  availableMinutes: number;
+  mood: Mood;
+  companion: Companion;
+  platforms: string[];
+  genres: string[];
+  contentTypes: ContentType[];
+};
+
+type PlaybackStatus = "鎾斁涓? | "宸叉殏鍋?;
+
+type PlaybackState = {
+  status: PlaybackStatus;
+  positionSeconds: number;
+  playbackRate: number;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+type ChatMessage = {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+};
+
+type WatchRoom = {
+  id: string;
+  movieId: string;
+  platformName: string;
+  hostName: string;
+  inviteLink: string;
+  members: string[];
+  playback: PlaybackState;
+  messages: ChatMessage[];
+};
+
+type WatchRoomDraft = {
+  movieId: string;
+  platformName: string;
+  hostName: string;
+  friendName: string;
+};
+
+type DiscussionComment = {
+  id: string;
+  movieId: string;
+  parentId: string | null;
+  author: string;
+  text: string;
+  likes: number;
+  likedByMe: boolean;
+  createdAt: string;
+};
+
+type WebSearchTarget = {
+  name: string;
+  description: string;
+  url: string;
+};
+
+type WatchChannelMessage = {
+  type?: "request-state" | "send-message" | "playback-command";
+  text?: string;
+  author?: string;
+  patch?: Partial<PlaybackState>;
+};
+
+const STORAGE_KEY = "cinelist-mvp-state-v1";
+const AUTH_KEY = "cinelist-auth-v1";
+const GUEST_KEY = "cinelist-guest-mode-v1";
+const DISCUSSION_LIKES_KEY = "cinelist-discussion-liked-v1";
+const API_BASE = "/api";
+const today = new Date().toISOString().slice(0, 10);
+
+function makeId(prefix = "") {
+  const randomId =
+    globalThis.crypto && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}${randomId}`;
+}
+
+type AuthUser = {
+  id: string;
+  username: string;
+  displayName: string;
+};
+
+type AuthSession = {
+  token: string;
+  user: AuthUser | null;
+};
+
+type AuthMode = "login" | "register";
+
+const genreOptions = [
+  "鍓ф儏",
+  "鍠滃墽",
+  "绉戝够",
+  "鎮枒",
+  "鍔ㄧ敾",
+  "绾綍鐗?,
+  "鐖辨儏",
+  "鍔ㄤ綔",
+  "瀹跺涵",
+  "娌绘剤",
+  "鍐掗櫓",
+  "鐘姜",
+  "鍘嗗彶",
+  "濂囧够",
+  "浼犺",
+  "缁艰壓",
+  "鐪熶汉绉€",
+  "缇庨",
+  "鏃呰",
+  "闊充箰",
+  "杩愬姩",
+  "鐭墽",
+  "鐢滃疇",
+  "閫嗚",
+  "閮藉競",
+];
+
+const platformOptions = [
+  "鑵捐瑙嗛",
+  "鐖卞鑹?,
+  "浼橀叿",
+  "鍝斿摡鍝斿摡",
+  "鑺掓灉TV",
+  "澶棰?,
+  "绾㈡灉鐭墽",
+  "鎶栭煶鐭墽",
+  "蹇墜灏忓墽鍦?,
+  "Netflix",
+  "Disney+",
+  "Apple TV+",
+];
+
+function platformSearchUrl(platformName: string, title: string) {
+  const keyword = encodeURIComponent(title);
+  const urls: Record<string, string> = {
+    鑵捐瑙嗛: `https://v.qq.com/x/search/?q=${keyword}`,
+    鐖卞鑹? `https://so.iqiyi.com/so/q_${keyword}`,
+    浼橀叿: `https://so.youku.com/search_video?keyword=${keyword}`,
+    鍝斿摡鍝斿摡: `https://search.bilibili.com/all?keyword=${keyword}`,
+    鑺掓灉TV: `https://so.mgtv.com/so?k=${keyword}`,
+    澶棰? `https://www.yangshipin.cn/search?keyword=${keyword}`,
+    绾㈡灉鐭墽: `https://www.baidu.com/s?wd=${keyword}%20${encodeURIComponent("绾㈡灉鐭墽")}`,
+    鎶栭煶鐭墽: `https://www.douyin.com/search/${keyword}?type=general`,
+    蹇墜灏忓墽鍦? `https://www.kuaishou.cn/theater/0`,
+    Netflix: `https://www.netflix.com/search?q=${keyword}`,
+    "Disney+": `https://www.disneyplus.com/search?q=${keyword}`,
+    "Apple TV+": `https://tv.apple.com/search?term=${keyword}`,
+  };
+  return urls[platformName] ?? `https://www.baidu.com/s?wd=${keyword}%20${encodeURIComponent(platformName)}`;
+}
+
+function webSearchTargets(keyword: string): WebSearchTarget[] {
+  const encoded = encodeURIComponent(keyword.trim());
+  if (!encoded) return [];
+  return [
+    {
+      name: "璞嗙摚鐢靛奖",
+      description: "鏌ヨ瘎鍒嗐€佺畝浠嬨€佹紨鍛樺拰褰辫瘎",
+      url: `https://search.douban.com/movie/subject_search?search_text=${encoded}`,
+    },
+    {
+      name: "鐧惧害",
+      description: "缁煎悎缃戦〉缁撴灉鍜岀櫨绉戜俊鎭?,
+      url: `https://www.baidu.com/s?wd=${encoded}%20鐢靛奖`,
+    },
+    {
+      name: "Bing",
+      description: "缁煎悎缃戦〉鍜屽浗闄呯墖鍚嶇粨鏋?,
+      url: `https://www.bing.com/search?q=${encoded}%20movie`,
+    },
+    ...platformOptions.map((platformName) => ({
+      name: platformName,
+      description: "鎼滅储鍙鐪嬪叆鍙?,
+      url: platformSearchUrl(platformName, keyword),
+    })),
+  ];
+}
+
+function makePlatform(platformName: string, title: string, watchType = "鎼滅储鍏ュ彛"): PlatformAvailability {
+  return {
+    platformName,
+    region: platformName === "Netflix" || platformName === "Disney+" || platformName === "Apple TV+" ? "鍏ㄧ悆閮ㄥ垎鍦板尯" : "涓浗澶ч檰",
+    watchType,
+    url: platformSearchUrl(platformName, title),
+    lastCheckedAt: today,
+    available: true,
+  };
+}
+
+function playableUrl(platform: PlatformAvailability, title: string) {
+  const homePages = new Set([
+    "https://v.qq.com",
+    "https://www.iqiyi.com",
+    "https://www.disneyplus.com",
+    "https://www.bilibili.com",
+    "https://www.youku.com",
+  ]);
+  return homePages.has(platform.url.replace(/\/$/, "")) ? platformSearchUrl(platform.platformName, title) : platform.url;
+}
+
+function openPlaybackResource(platform: PlatformAvailability | undefined, title: string) {
+  if (!platform?.url) {
+    window.alert("鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮");
+    return false;
+  }
+  const playbackWindow = window.open(playableUrl(platform, title), "_blank");
+  if (!playbackWindow) {
+    window.alert("鎾斁绐楀彛琚祻瑙堝櫒鎷︽埅浜嗭紝璇峰厑璁告湰绔欏脊鍑虹獥鍙ｅ悗閲嶈瘯銆?);
+    return false;
+  }
+  playbackWindow.opener = null;
+  return true;
+}
+
+const initialMovies: Movie[] = [
+  {
+    id: "m-1",
+    title: "鏄熼檯绌胯秺",
+    alias: "Interstellar",
+    year: 2014,
+    type: "鐢靛奖",
+    genres: ["绉戝够", "鍐掗櫓", "鍓ф儏"],
+    durationMinutes: 169,
+    poster: "鏄?,
+    summary: "涓€鏀帰闄╅槦绌胯秺铏礊瀵绘壘浜虹被鐨勬柊瀹跺洯锛屼篃閲嶆柊鐞嗚В浜叉儏涓庢椂闂淬€?,
+    directors: ["鍏嬮噷鏂墭寮椔疯鍏?],
+    actors: ["椹慨路楹﹀悍绾?, "瀹夊Ξ路娴风憻钖?],
+    moods: ["鐑ц剳", "娌绘剤"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [
+      {
+        platformName: "鑵捐瑙嗛",
+        region: "涓浗澶ч檰",
+        watchType: "浼氬憳",
+        url: "https://v.qq.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+      {
+        platformName: "鐖卞鑹?,
+        region: "涓浗澶ч檰",
+        watchType: "浼氬憳",
+        url: "https://www.iqiyi.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+    ],
+  },
+  {
+    id: "m-2",
+    title: "蹇冪伒濂囨梾",
+    alias: "Soul",
+    year: 2020,
+    type: "鐢靛奖",
+    genres: ["鍔ㄧ敾", "娌绘剤", "鍠滃墽"],
+    durationMinutes: 101,
+    poster: "蹇?,
+    summary: "涓€浣嶇埖澹箰鎵嬪湪鐢熷懡杞澶勯噸鏂板彂鐜版棩甯哥殑鎰忎箟銆?,
+    directors: ["褰肩壒路閬撴牸鐗?],
+    actors: ["鏉扮背路绂忓厠鏂?, "钂傚路鑿?],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["瀹跺涵", "鎯呬荆", "鏈嬪弸"],
+    platforms: [
+      {
+        platformName: "Disney+",
+        region: "鍏ㄧ悆閮ㄥ垎鍦板尯",
+        watchType: "浼氬憳",
+        url: "https://www.disneyplus.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+    ],
+  },
+  {
+    id: "m-3",
+    title: "闅愮鐨勮钀?,
+    alias: "The Bad Kids",
+    year: 2020,
+    type: "鍓ч泦",
+    genres: ["鎮枒", "鐘姜", "鍓ф儏"],
+    durationMinutes: 45,
+    poster: "闅?,
+    summary: "涓変釜瀛╁瓙鐨勪竴娆℃剰澶栫洰鍑伙紝灏嗗嚑涓搴嫋鍏ユ棤娉曞洖澶寸殑澶忓ぉ銆?,
+    directors: ["杈涚埥"],
+    actors: ["绉︽槉", "鐜嬫櫙鏄?, "鑽ｆ鏉?],
+    moods: ["鐑ц剳", "鍒烘縺"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [
+      {
+        platformName: "鐖卞鑹?,
+        region: "涓浗澶ч檰",
+        watchType: "浼氬憳",
+        url: "https://www.iqiyi.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+    ],
+  },
+  {
+    id: "m-4",
+    title: "浜虹敓鏋滃疄",
+    alias: "Life Is Fruity",
+    year: 2017,
+    type: "绾綍鐗?,
+    genres: ["绾綍鐗?, "娌绘剤", "瀹跺涵"],
+    durationMinutes: 91,
+    poster: "鏋?,
+    summary: "涓€瀵硅€佸か濡囩敤缂撴參銆佽鐪熴€佸郊姝ょ収鏂欑殑鐢熸椿锛岀ず鑼冩椂闂寸殑娓╂煍銆?,
+    directors: ["浼忓師鍋ヤ箣"],
+    actors: ["娲ョ淇竴", "娲ョ鑻卞瓙"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["瀹跺涵", "鎯呬荆", "鐙嚜"],
+    platforms: [],
+  },
+  {
+    id: "m-5",
+    title: "鐤媯鍔ㄧ墿鍩?,
+    alias: "Zootopia",
+    year: 2016,
+    type: "鐢靛奖",
+    genres: ["鍔ㄧ敾", "鍠滃墽", "鍐掗櫓"],
+    durationMinutes: 108,
+    poster: "鍩?,
+    summary: "涓€鍙厰瀛愯瀹樺拰涓€鍙嫄鐙告惌妗ｏ紝鍦ㄥ姩鐗╅兘甯傞噷渚︾牬涓€妗╁ぇ妗堛€?,
+    directors: ["鎷滀鸡路闇嶅崕寰?, "鐟炲路鎽╁皵"],
+    actors: ["閲戝Ξ寮椔峰彜寰锋俯", "鏉版．路璐濈壒鏇?],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["瀹跺涵", "鏈嬪弸", "鎯呬荆"],
+    platforms: [
+      {
+        platformName: "Disney+",
+        region: "鍏ㄧ悆閮ㄥ垎鍦板尯",
+        watchType: "浼氬憳",
+        url: "https://www.disneyplus.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+      {
+        platformName: "鍝斿摡鍝斿摡",
+        region: "涓浗澶ч檰",
+        watchType: "浼氬憳",
+        url: "https://www.bilibili.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+    ],
+  },
+  {
+    id: "m-6",
+    title: "鏇艰揪娲涗汉",
+    alias: "The Mandalorian",
+    year: 2019,
+    type: "鍓ч泦",
+    genres: ["绉戝够", "鍔ㄤ綔", "鍐掗櫓"],
+    durationMinutes: 38,
+    poster: "鏇?,
+    summary: "瀛ょ嫭璧忛噾鐚庝汉鍦ㄩ摱娌宠竟缂樻姢閫佺绉樺瀛愶紝灞曞紑涓€娆℃剰澶栨梾绋嬨€?,
+    directors: ["涔旀仼路璐瑰剴"],
+    actors: ["浣╁痉缃椔峰笗鏂崱"],
+    moods: ["鍒烘縺", "杞绘澗"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [
+      {
+        platformName: "Disney+",
+        region: "鍏ㄧ悆閮ㄥ垎鍦板尯",
+        watchType: "浼氬憳",
+        url: "https://www.disneyplus.com",
+        lastCheckedAt: "2026-08-11",
+        available: true,
+      },
+    ],
+  },
+  {
+    id: "m-7",
+    title: "绻佽姳",
+    alias: "Blossoms Shanghai",
+    year: 2023,
+    type: "鍓ч泦",
+    genres: ["鍓ф儏", "鐖辨儏"],
+    durationMinutes: 45,
+    poster: "绻?,
+    summary: "涓婃捣娴疆涓殑鍟嗘捣娴矇銆佹儏鎰熺壍杩炰笌鏃朵唬姘旀伅锛岄€傚悎鎱㈡參杩界殑涓€閮ㄥ墽銆?,
+    directors: ["鐜嬪鍗?],
+    actors: ["鑳℃瓕", "椹紛鐞?, "鍞愬"],
+    moods: ["杞绘澗", "娌绘剤"],
+    companions: ["鐙嚜", "鎯呬荆", "瀹跺涵"],
+    platforms: [makePlatform("鑵捐瑙嗛", "绻佽姳", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("澶棰?, "绻佽姳")],
+  },
+  {
+    id: "m-8",
+    title: "涓変綋",
+    alias: "Three-Body",
+    year: 2023,
+    type: "鍓ч泦",
+    genres: ["绉戝够", "鎮枒", "鍓ф儏"],
+    durationMinutes: 45,
+    poster: "涓?,
+    summary: "浠庣瀛﹁竟鐣屽埌瀹囧畽鏂囨槑锛岄€傚悎鎯宠娌夋蹈寮忕儳鑴戣拷鍓х殑澶滄櫄銆?,
+    directors: ["鏉ㄧ"],
+    actors: ["寮犻瞾涓€", "浜庡拰浼?, "闄堢懢"],
+    moods: ["鐑ц剳", "鍒烘縺"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("鑵捐瑙嗛", "涓変綋", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("Netflix", "3 Body Problem")],
+  },
+  {
+    id: "m-9",
+    title: "搴嗕綑骞?,
+    alias: "Joy of Life",
+    year: 2019,
+    type: "鍓ч泦",
+    genres: ["鍓ф儏", "鍠滃墽", "鍐掗櫓"],
+    durationMinutes: 45,
+    poster: "搴?,
+    summary: "杞诲枩鍓у澹充笅鐨勬潈璋嬫晠浜嬶紝鑺傚杞诲揩锛岄€傚悎鏈嬪弸涓€璧疯拷銆?,
+    directors: ["瀛欑殦"],
+    actors: ["寮犺嫢鏄€", "鏉庢瞾", "闄堥亾鏄?],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鏈嬪弸", "瀹跺涵", "鐙嚜"],
+    platforms: [makePlatform("鑵捐瑙嗛", "搴嗕綑骞?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鐖卞鑹?, "搴嗕綑骞?)],
+  },
+  {
+    id: "m-10",
+    title: "鐙傞",
+    alias: "The Knockout",
+    year: 2023,
+    type: "鍓ч泦",
+    genres: ["鐘姜", "鍓ф儏", "鎮枒"],
+    durationMinutes: 45,
+    poster: "椋?,
+    summary: "妯法澶氬勾鐨勪汉鐗╁懡杩愪笌鎵粦鍙欎簨锛屽己鍓ф儏銆佸己鍐茬獊銆?,
+    directors: ["寰愮邯鍛?],
+    actors: ["寮犺瘧", "寮犻鏂?, "鏉庝竴妗?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("鐖卞鑹?, "鐙傞", "浼氬憳/鎼滅储鍏ュ彛")],
+  },
+  {
+    id: "m-11",
+    title: "闀垮畨涓変竾閲?,
+    alias: "Chang An",
+    year: 2023,
+    type: "鐢靛奖",
+    genres: ["鍔ㄧ敾", "鍓ф儏", "鍘嗗彶"],
+    durationMinutes: 168,
+    poster: "闀?,
+    summary: "浠ヨ瘲鍏ユⅵ锛岃杩板ぇ鍞愮兢鏄熶笌楂橀€傘€佹潕鐧界殑鐢熷懡浜ら敊銆?,
+    directors: ["璋㈠悰浼?, "閭归潠"],
+    actors: ["鏉ㄥぉ缈?, "鍑屾尟璧?],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["瀹跺涵", "鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("浼橀叿", "闀垮畨涓変竾閲?, "浠樿垂/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "闀垮畨涓変竾閲?)],
+  },
+  {
+    id: "m-12",
+    title: "骞翠細涓嶈兘鍋滐紒",
+    alias: "Johnny Keep Walking!",
+    year: 2023,
+    type: "鐢靛奖",
+    genres: ["鍠滃墽", "鍓ф儏"],
+    durationMinutes: 117,
+    poster: "骞?,
+    summary: "鑱屽満閿欎綅鍠滃墽锛岀敤杞绘澗鏂瑰紡璁叉墦宸ヤ汉鐨勮崚璇炲拰鐖芥劅銆?,
+    directors: ["钁ｆ鼎骞?],
+    actors: ["澶ч箯", "鐧藉", "搴勮揪鑿?],
+    moods: ["杞绘澗", "娌绘剤"],
+    companions: ["鏈嬪弸", "鎯呬荆", "鐙嚜"],
+    platforms: [makePlatform("鍝斿摡鍝斿摡", "骞翠細涓嶈兘鍋?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "骞翠細涓嶈兘鍋?)],
+  },
+  {
+    id: "m-13",
+    title: "娴佹氮鍦扮悆2",
+    alias: "The Wandering Earth II",
+    year: 2023,
+    type: "鐢靛奖",
+    genres: ["绉戝够", "鍔ㄤ綔", "鍓ф儏"],
+    durationMinutes: 173,
+    poster: "鐞?,
+    summary: "澶槼鍗辨満涓嬬殑浜虹被鎶夋嫨涓庡畯澶у伐涓氱骞诲満闈紝閫傚悎闀挎椂闂存矇娴歌鐪嬨€?,
+    directors: ["閮竼"],
+    actors: ["鍚翠含", "鍒樺痉鍗?, "鏉庨洩鍋?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鏈嬪弸", "瀹跺涵", "鐙嚜"],
+    platforms: [makePlatform("鑵捐瑙嗛", "娴佹氮鍦扮悆2", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鐖卞鑹?, "娴佹氮鍦扮悆2"), makePlatform("浼橀叿", "娴佹氮鍦扮悆2")],
+  },
+  {
+    id: "m-14",
+    title: "灏佺绗竴閮?,
+    alias: "Creation of the Gods I",
+    year: 2023,
+    type: "鐢靛奖",
+    genres: ["鍔ㄤ綔", "鍐掗櫓", "鍓ф儏"],
+    durationMinutes: 148,
+    poster: "灏?,
+    summary: "绁炶瘽鍙茶瘲涓庢垬浜夊啋闄╃粨鍚堬紝閫傚悎鎯崇湅澶у満闈㈢殑瑙傚奖鍦烘櫙銆?,
+    directors: ["涔屽皵鍠?],
+    actors: ["璐圭繑", "鏉庨洩鍋?, "榛勬袱"],
+    moods: ["鍒烘縺"],
+    companions: ["鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鑵捐瑙嗛", "灏佺绗竴閮?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("浼橀叿", "灏佺绗竴閮?)],
+  },
+  {
+    id: "m-15",
+    title: "鎴戠殑闃垮嫆娉?,
+    alias: "To the Wonder",
+    year: 2024,
+    type: "鍓ч泦",
+    genres: ["鍓ф儏", "娌绘剤"],
+    durationMinutes: 45,
+    poster: "闃?,
+    summary: "鑽夊師銆佷翰鎯呬笌鎴愰暱锛屾皵璐ㄦ竻婢堬紝閫傚悎鏀炬澗鎴栨不鎰堝績鎯呫€?,
+    directors: ["婊曚笡涓?],
+    actors: ["椹紛鐞?, "鍛ㄤ緷鐒?, "浜庨€?],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "鎯呬荆", "瀹跺涵"],
+    platforms: [makePlatform("鐖卞鑹?, "鎴戠殑闃垮嫆娉?, "浼氬憳/鎼滅储鍏ュ彛")],
+  },
+  {
+    id: "m-16",
+    title: "鍘绘湁椋庣殑鍦版柟",
+    alias: "Meet Yourself",
+    year: 2023,
+    type: "鍓ч泦",
+    genres: ["娌绘剤", "鐖辨儏", "鍓ф儏"],
+    durationMinutes: 45,
+    poster: "椋?,
+    summary: "鍦ㄤ簯鍗楀皬闀囬噸鏂版壘鍥炵敓娲昏妭濂忥紝鏄潪甯搁€傚悎鍑忓帇鐨勬不鎰堝墽銆?,
+    directors: ["涓佹鍏?],
+    actors: ["鍒樹害鑿?, "鏉庣幇"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鎯呬荆", "瀹跺涵", "鐙嚜"],
+    platforms: [makePlatform("鑺掓灉TV", "鍘绘湁椋庣殑鍦版柟", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "鍘绘湁椋庣殑鍦版柟")],
+  },
+  {
+    id: "m-17",
+    title: "鐢勫瑳浼?,
+    alias: "Empresses in the Palace",
+    year: 2011,
+    type: "鍓ч泦",
+    genres: ["鍓ф儏", "鍘嗗彶"],
+    durationMinutes: 45,
+    poster: "鐢?,
+    summary: "缁忓吀瀹环缇ゅ儚涓庝汉鐗╂垚闀匡紝閫傚悎闀跨嚎閲嶆俯鍜屽搴鐪嬨€?,
+    directors: ["閮戞檽榫?],
+    actors: ["瀛欎开", "闄堝缓鏂?, "钄″皯鑺?],
+    moods: ["鐑ц剳", "娌绘剤"],
+    companions: ["鐙嚜", "瀹跺涵", "鏈嬪弸"],
+    platforms: [makePlatform("浼橀叿", "鐢勫瑳浼?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "鐢勫瑳浼?)],
+  },
+  {
+    id: "m-18",
+    title: "涓浗濂囪碍",
+    alias: "Yao-Chinese Folktales",
+    year: 2023,
+    type: "鍔ㄦ极",
+    genres: ["鍔ㄧ敾", "濂囧够", "鍓ф儏"],
+    durationMinutes: 20,
+    poster: "濂?,
+    summary: "鐭瘒鍥介鍔ㄧ敾鍚堥泦锛屽崟闆嗘椂闂寸煭锛岄€傚悎 30 鍒嗛挓纰庣墖鏃堕棿銆?,
+    directors: ["闄堝粬瀹?],
+    actors: ["涓婃捣缇庢湳鐢靛奖鍒剁墖鍘?],
+    moods: ["杞绘澗", "鐑ц剳", "娌绘剤"],
+    companions: ["鐙嚜", "鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鍝斿摡鍝斿摡", "涓浗濂囪碍", "浼氬憳/鎼滅储鍏ュ彛")],
+  },
+  {
+    id: "m-19",
+    title: "浜虹敓绗竴娆?,
+    alias: "The Firsts in Life",
+    year: 2020,
+    type: "绾綍鐗?,
+    genres: ["绾綍鐗?, "瀹跺涵", "娌绘剤"],
+    durationMinutes: 35,
+    poster: "鍒?,
+    summary: "璁板綍鍑虹敓銆佷笂瀛︺€佹垚瀹躲€佸吇鑰佺瓑浜虹敓鑺傜偣锛屾俯鏌旂湡瀹炪€?,
+    directors: ["绉﹀崥"],
+    actors: ["绾綍鐗囦汉鐗?],
+    moods: ["娌绘剤"],
+    companions: ["瀹跺涵", "鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("鍝斿摡鍝斿摡", "浜虹敓绗竴娆?, "鍏嶈垂瑙傜湅/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "浜虹敓绗竴娆?)],
+  },
+  {
+    id: "m-20",
+    title: "浣嗘槸杩樻湁涔︾睄",
+    alias: "And Yet The Books",
+    year: 2019,
+    type: "绾綍鐗?,
+    genres: ["绾綍鐗?, "娌绘剤"],
+    durationMinutes: 30,
+    poster: "涔?,
+    summary: "鍏充簬涔︺€佷綔鑰呫€佺紪杈戝拰璇昏€呯殑绾綍鐗囷紝閫傚悎瀹夐潤鐙鏃惰鐪嬨€?,
+    directors: ["缃楅楦?],
+    actors: ["鑳℃瓕"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("鍝斿摡鍝斿摡", "浣嗘槸杩樻湁涔︾睄", "鍏嶈垂瑙傜湅/鎼滅储鍏ュ彛")],
+  },
+  {
+    id: "m-21",
+    title: "濂ユ湰娴烽粯",
+    alias: "Oppenheimer",
+    year: 2023,
+    type: "鐢靛奖",
+    genres: ["鍓ф儏", "鍘嗗彶", "浼犺"],
+    durationMinutes: 180,
+    poster: "濂?,
+    summary: "鍏充簬绉戝銆佹垬浜変笌閬撳痉閫夋嫨鐨勯珮瀵嗗害浼犺鐢靛奖銆?,
+    directors: ["鍏嬮噷鏂墭寮椔疯鍏?],
+    actors: ["鍩洪噷瀹壜峰ⅷ鑿?, "鑹剧背鑾壜峰竷鏈楃壒"],
+    moods: ["鐑ц剳", "鍒烘縺"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("鑵捐瑙嗛", "濂ユ湰娴烽粯", "浠樿垂/鎼滅储鍏ュ彛"), makePlatform("Apple TV+", "Oppenheimer")],
+  },
+  {
+    id: "m-22",
+    title: "娌欎笜2",
+    alias: "Dune: Part Two",
+    year: 2024,
+    type: "鐢靛奖",
+    genres: ["绉戝够", "鍐掗櫓", "鍔ㄤ綔"],
+    durationMinutes: 166,
+    poster: "娌?,
+    summary: "瀹忓ぇ娌欐紶鍙茶瘲缁珷锛岄€傚悎鎯崇湅瑙嗚濂囪鍜屽鏉備笘鐣岃鐨勬椂娈点€?,
+    directors: ["涓瑰凹鏂风淮浼︾航鐡?],
+    actors: ["鎻愯帿瑗柯锋煡鎷夋", "璧炶揪浜?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("鑵捐瑙嗛", "娌欎笜2", "浠樿垂/鎼滅储鍏ュ彛"), makePlatform("Apple TV+", "Dune Part Two")],
+  },
+  {
+    id: "m-23",
+    title: "钁€佺殑鑺欒帀鑾?,
+    alias: "Frieren: Beyond Journey's End",
+    year: 2023,
+    type: "鍔ㄦ极",
+    genres: ["鍔ㄧ敾", "鍐掗櫓", "娌绘剤"],
+    durationMinutes: 24,
+    poster: "鑺?,
+    summary: "鍕囪€呮梾绋嬬粨鏉熷悗鐨勬极闀垮悗鏃ヨ皥锛岃妭濂忚垝缂撳張鏈変綑鍛炽€?,
+    directors: ["鏂嬭棨鍦竴閮?],
+    actors: ["绉嶅磶鏁︾編", "鍐堟湰淇″溅"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("鍝斿摡鍝斿摡", "钁€佺殑鑺欒帀鑾?, "浼氬憳/鎼滅储鍏ュ彛")],
+  },
+  {
+    id: "m-24",
+    title: "瀵嗗澶ч€冭劚",
+    alias: "Great Escape",
+    year: 2019,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鎮枒", "鍒烘縺"],
+    durationMinutes: 95,
+    poster: "瀵?,
+    summary: "鏄庢槦鐜╁杩涘叆澶у瀷瀹炴櫙瀵嗗锛岄€氳繃鎺ㄧ悊銆佸崗浣滃拰瑙ｈ皽瀹屾垚閫冭劚浠诲姟锛岄€傚悎鏈嬪弸涓€璧风湅銆?,
+    directors: [],
+    actors: ["鏉ㄥ箓", "澶у紶浼?, "榛勬槑鏄?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鏈嬪弸", "鎯呬荆"],
+    platforms: [makePlatform("鑺掓灉TV", "瀵嗗澶ч€冭劚", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "瀵嗗澶ч€冭劚")],
+  },
+  {
+    id: "m-25",
+    title: "涓鍘?,
+    alias: "Chinese Restaurant",
+    year: 2017,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "缇庨", "鏃呰"],
+    durationMinutes: 90,
+    poster: "涓?,
+    summary: "鍢夊鍦ㄤ笉鍚屽煄甯傜粡钀ヤ腑椁愬巺锛屼粠澶囪彍銆佸緟瀹㈠埌缁忚惀鍗忎綔锛岃交鏉句笅楗張閫傚悎瀹跺涵瑙傜湅銆?,
+    directors: [],
+    actors: ["榛勬檽鏄?, "璧典附棰?, "鏋楄堪宸?],
+    moods: ["杞绘澗", "娌绘剤"],
+    companions: ["瀹跺涵", "鏈嬪弸", "鎯呬荆"],
+    platforms: [makePlatform("鑺掓灉TV", "涓鍘?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "涓鍘?)],
+  },
+  {
+    id: "m-26",
+    title: "鍚戝線鐨勭敓娲?,
+    alias: "Back to Field",
+    year: 2017,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "娌绘剤", "缇庨"],
+    durationMinutes: 95,
+    poster: "鍚?,
+    summary: "鍦ㄧ敯鍥敓娲婚噷鍋氶キ銆佽亰澶┿€佸緟瀹紝鎶婃參鑺傚鍜岀儫鐏皵鏀惧埌灞忓箷鍓嶃€?,
+    directors: [],
+    actors: ["浣曠倕", "榛勭", "褰槺鐣?, "寮犲瓙鏋?],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["瀹跺涵", "鎯呬荆", "鏈嬪弸"],
+    platforms: [makePlatform("鑺掓灉TV", "鍚戝線鐨勭敓娲?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "鍚戝線鐨勭敓娲?)],
+  },
+  {
+    id: "m-27",
+    title: "濂旇窇鍚у厔寮?,
+    alias: "Keep Running",
+    year: 2014,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "杩愬姩", "鍠滃墽"],
+    durationMinutes: 95,
+    poster: "濂?,
+    summary: "缁忓吀鎴峰绔炴妧鐪熶汉绉€锛屾父鎴忎换鍔°€佸洟闃熷鎶楀拰鍢夊浜掑姩閮藉緢閫傚悎澶氫汉涓€璧风湅銆?,
+    directors: [],
+    actors: ["閭撹秴", "Angelababy", "鏉庢櫒", "閮戞伜"],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鐖卞鑹?, "濂旇窇鍚у厔寮?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "濂旇窇鍚у厔寮?), makePlatform("浼橀叿", "濂旇窇鍚у厔寮?)],
+  },
+  {
+    id: "m-28",
+    title: "鏄庢槦澶т睛鎺?,
+    alias: "Who's the Murderer",
+    year: 2016,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鎮枒", "鐑ц剳"],
+    durationMinutes: 100,
+    poster: "渚?,
+    summary: "瑙掕壊鎵紨寮忔帹鐞嗙患鑹猴紝鍦ㄦ浠舵晠浜嬮噷鎼滆瘉銆佹帹鐞嗗拰鎶曠エ锛岄€傚悎鍠滄鎮枒鐨勪汉銆?,
+    directors: [],
+    actors: ["浣曠倕", "鎾掕礉瀹?, "鐧芥暚浜?],
+    moods: ["鐑ц剳", "鍒烘縺"],
+    companions: ["鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("鑺掓灉TV", "鏄庢槦澶т睛鎺?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "鏄庢槦澶т睛鎺?)],
+  },
+  {
+    id: "m-29",
+    title: "澶т睛鎺?,
+    alias: "Who's the Murderer",
+    year: 2022,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鎮枒", "鐑ц剳"],
+    durationMinutes: 100,
+    poster: "澶?,
+    summary: "寤剁画娌夋蹈寮忔帹鐞嗙帺娉曪紝鐢ㄦ洿瀹屾暣鐨勬晠浜嬪満鏅拰瑙掕壊鍏崇郴鎺ㄨ繘妗堜欢銆?,
+    directors: [],
+    actors: ["浣曠倕", "寮犺嫢鏄€", "澶у紶浼?],
+    moods: ["鐑ц剳", "鍒烘縺"],
+    companions: ["鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("鑺掓灉TV", "澶т睛鎺?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "澶т睛鎺?)],
+  },
+  {
+    id: "m-30",
+    title: "鏋侀檺鎸戞垬",
+    alias: "Go Fighting!",
+    year: 2015,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鍠滃墽"],
+    durationMinutes: 95,
+    poster: "鏋?,
+    summary: "鎴峰浠诲姟鍜屽槈瀹惧崥寮堢粨鍚堢殑鐪熶汉绉€锛岃妭濂忚交蹇€佺瑧鐐瑰瘑闆嗐€?,
+    directors: [],
+    actors: ["榛勬袱", "瀛欑孩闆?, "榛勭", "缃楀織绁?],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鑵捐瑙嗛", "鏋侀檺鎸戞垬", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("浼橀叿", "鏋侀檺鎸戞垬"), makePlatform("鐖卞鑹?, "鏋侀檺鎸戞垬")],
+  },
+  {
+    id: "m-31",
+    title: "鐜嬬墝瀵圭帇鐗?,
+    alias: "Ace vs Ace",
+    year: 2016,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鍠滃墽"],
+    durationMinutes: 90,
+    poster: "鐜?,
+    summary: "妫氬唴娓告垙銆佺粡鍏稿墽缁勯噸鑱氬拰鎵嶈壓浜掑姩涓轰富锛岄€傚悎鏀炬澗鍜屽搴鐪嬨€?,
+    directors: [],
+    actors: ["娌堣吘", "璐剧幉", "鍗庢櫒瀹?, "鍏虫檽褰?],
+    moods: ["杞绘澗", "娌绘剤"],
+    companions: ["瀹跺涵", "鏈嬪弸"],
+    platforms: [makePlatform("鑵捐瑙嗛", "鐜嬬墝瀵圭帇鐗?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鐖卞鑹?, "鐜嬬墝瀵圭帇鐗?), makePlatform("浼橀叿", "鐜嬬墝瀵圭帇鐗?)],
+  },
+  {
+    id: "m-32",
+    title: "浣犲ソ锛屾槦鏈熷叚",
+    alias: "Hello Saturday",
+    year: 2022,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鍠滃墽"],
+    durationMinutes: 90,
+    poster: "鍏?,
+    summary: "鍛ㄦ湯妫氬唴缁艰壓锛屾父鎴忎簰鍔ㄥ拰鍢夊鑸炲彴缁撳悎锛岄€傚悎纰庣墖鏃堕棿杞绘澗鐪嬨€?,
+    directors: [],
+    actors: ["浣曠倕", "妾€鍋ユ", "鏉庨洩鐞?],
+    moods: ["杞绘澗"],
+    companions: ["鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鑺掓灉TV", "浣犲ソ鏄熸湡鍏?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "浣犲ソ鏄熸湡鍏?)],
+  },
+  {
+    id: "m-33",
+    title: "澹扮敓涓嶆伅",
+    alias: "Infinity and Beyond",
+    year: 2022,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "闊充箰", "鐪熶汉绉€"],
+    durationMinutes: 95,
+    poster: "澹?,
+    summary: "闊充箰绔炴紨涓庣粡鍏告瓕鏇查噸鍞辩粨鍚堬紝閫傚悎鍠滄鑸炲彴鍜屽崕璇煶涔愮殑浜恒€?,
+    directors: [],
+    actors: ["鏋楀瓙绁?, "鍙跺€╂枃", "鏉庡厠鍕?],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "瀹跺涵", "鏈嬪弸"],
+    platforms: [makePlatform("鑺掓灉TV", "澹扮敓涓嶆伅", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "澹扮敓涓嶆伅")],
+  },
+  {
+    id: "m-34",
+    title: "蹇箰鍐嶅嚭鍙?,
+    alias: "Go for Happiness",
+    year: 2022,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "鏃呰", "闊充箰"],
+    durationMinutes: 80,
+    poster: "蹇?,
+    summary: "鑰佸弸鏃呰鍜岄煶涔愯亰澶╀氦缁囷紝鏉惧紱銆佺湡璇氾紝閫傚悎鎯虫壘闄即鎰熺殑鏃跺€欑湅銆?,
+    directors: [],
+    actors: ["闄堟鐢?, "鑻忛啋", "鐜嬫爭閼?, "寮犺繙"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("鑺掓灉TV", "蹇箰鍐嶅嚭鍙?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "蹇箰鍐嶅嚭鍙?), makePlatform("鍝斿摡鍝斿摡", "蹇箰鍐嶅嚭鍙?)],
+  },
+  {
+    id: "m-35",
+    title: "绉嶅湴鍚?,
+    alias: "Become a Farmer",
+    year: 2023,
+    type: "缁艰壓",
+    genres: ["缁艰壓", "鐪熶汉绉€", "娌绘剤"],
+    durationMinutes: 90,
+    poster: "绉?,
+    summary: "骞磋交浜虹湡瀹炲弬涓庡啘涓氬姵浣滃拰缁忚惀锛屾垚闀跨嚎闀裤€侀櫔浼存劅寮恒€?,
+    directors: [],
+    actors: ["鍗佷釜鍕ゅぉ"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "鏈嬪弸", "瀹跺涵"],
+    platforms: [makePlatform("鐖卞鑹?, "绉嶅湴鍚?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "绉嶅湴鍚?)],
+  },
+  {
+    id: "m-36",
+    title: "绾㈡灉鐭墽",
+    alias: "Hongguo Short Drama",
+    year: 2024,
+    type: "鐭墽",
+    genres: ["鐭墽", "鐢滃疇", "閫嗚", "閮藉競"],
+    durationMinutes: 8,
+    poster: "绾?,
+    summary: "绾㈡灉鐭墽骞冲彴鍏ュ彛锛岄€傚悎鎸夌敎瀹犮€侀€嗚銆侀兘甯傘€佸彜瑁呯瓑鍏抽敭璇嶇户缁悳绱㈢煭鍓с€?,
+    directors: [],
+    actors: ["鐭墽婕斿憳"],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("绾㈡灉鐭墽", "绾㈡灉鐭墽", "鍏嶈垂/鎼滅储鍏ュ彛"), makePlatform("鎶栭煶鐭墽", "绾㈡灉鐭墽"), makePlatform("蹇墜灏忓墽鍦?, "绾㈡灉鐭墽")],
+  },
+  {
+    id: "m-37",
+    title: "闂鍚庯紝鍌呭厛鐢熼┈鐢茶棌涓嶄綇浜?,
+    alias: "Hidden Identity After Marriage",
+    year: 2024,
+    type: "鐭墽",
+    genres: ["鐭墽", "鐢滃疇", "閮藉競", "閫嗚"],
+    durationMinutes: 6,
+    poster: "闂?,
+    summary: "鐢滃疇閮藉競鐭墽鏂瑰悜锛岄€傚悎鎯崇湅楂樺瘑搴﹀弽杞€佽交鏉捐拷瀹岀殑纰庣墖鏃堕棿銆?,
+    directors: [],
+    actors: ["鐭墽婕斿憳"],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("绾㈡灉鐭墽", "闂鍚?鍌呭厛鐢熼┈鐢茶棌涓嶄綇浜?, "鍏嶈垂/鎼滅储鍏ュ彛"), makePlatform("鎶栭煶鐭墽", "闂鍚?鍌呭厛鐢熼┈鐢茶棌涓嶄綇浜?), makePlatform("蹇墜灏忓墽鍦?, "闂鍚?鍌呭厛鐢熼┈鐢茶棌涓嶄綇浜?)],
+  },
+  {
+    id: "m-38",
+    title: "鎴戝湪鍏浂骞翠唬褰撳悗濡?,
+    alias: "Stepmother in the 1980s",
+    year: 2024,
+    type: "鐭墽",
+    genres: ["鐭墽", "骞翠唬", "瀹跺涵", "閫嗚"],
+    durationMinutes: 7,
+    poster: "鍏?,
+    summary: "骞翠唬瀹跺涵鐭墽鏂瑰悜锛屼富鎵撲翰鎯呫€佹垚闀垮拰鐖芥劅鍙嶈浆銆?,
+    directors: [],
+    actors: ["鐭墽婕斿憳"],
+    moods: ["娌绘剤", "杞绘澗"],
+    companions: ["鐙嚜", "瀹跺涵"],
+    platforms: [makePlatform("绾㈡灉鐭墽", "鎴戝湪鍏浂骞翠唬褰撳悗濡?, "鍏嶈垂/鎼滅储鍏ュ彛"), makePlatform("鎶栭煶鐭墽", "鎴戝湪鍏浂骞翠唬褰撳悗濡?), makePlatform("蹇墜灏忓墽鍦?, "鎴戝湪鍏浂骞翠唬褰撳悗濡?)],
+  },
+  {
+    id: "m-39",
+    title: "蹇靛康鏃犳槑",
+    alias: "The Killer Is Also Romantic",
+    year: 2022,
+    type: "鐭墽",
+    genres: ["鐭墽", "鍙よ", "鐖辨儏", "鍠滃墽"],
+    durationMinutes: 12,
+    poster: "蹇?,
+    summary: "鍙よ鐖辨儏鐭墽锛屽崟闆嗙煭銆佽妭濂忓揩锛岄€傚悎涓€鍙ｆ皵杩藉畬銆?,
+    directors: [],
+    actors: ["鑳′腹涓?, "鏉ㄦ辰"],
+    moods: ["杞绘澗", "鍒烘縺"],
+    companions: ["鎯呬荆", "鏈嬪弸"],
+    platforms: [makePlatform("鑺掓灉TV", "蹇靛康鏃犳槑", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "蹇靛康鏃犳槑"), makePlatform("绾㈡灉鐭墽", "蹇靛康鏃犳槑")],
+  },
+  {
+    id: "m-40",
+    title: "铏氶",
+    alias: "A Familiar Stranger",
+    year: 2022,
+    type: "鐭墽",
+    genres: ["鐭墽", "鍙よ", "鐖辨儏", "鎮枒"],
+    durationMinutes: 12,
+    poster: "铏?,
+    summary: "鍙よ鎹㈣劯璁惧畾鐭墽锛岀埍鎯呯嚎鍜屾偓鐤戞劅骞惰锛岄€傚悎鐭椂闂存矇娴歌拷鍓с€?,
+    directors: [],
+    actors: ["鏌", "涓炵"],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("鑺掓灉TV", "铏氶", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("鑵捐瑙嗛", "铏氶"), makePlatform("绾㈡灉鐭墽", "铏氶")],
+  },
+  {
+    id: "m-41",
+    title: "鎷涙児",
+    alias: "Provoke",
+    year: 2023,
+    type: "鐭墽",
+    genres: ["鐭墽", "鐖辨儏", "鎮枒", "姘戝浗"],
+    durationMinutes: 12,
+    poster: "鎷?,
+    summary: "姘戝浗鎯呮劅鐭墽锛屽浠囥€佽韩浠藉拰鐖辨儏绾夸氦缁囷紝閫傚悎鍠滄寮哄墽鎯呯殑浜恒€?,
+    directors: [],
+    actors: ["鏉庢矏瀹?, "璧靛紙閽?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("鑵捐瑙嗛", "鎷涙児 鐭墽", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("浼橀叿", "鎷涙児 鐭墽"), makePlatform("绾㈡灉鐭墽", "鎷涙児")],
+  },
+  {
+    id: "m-42",
+    title: "鍏ㄨ祫杩涚粍",
+    alias: "The Director Who Buys Me Dinner",
+    year: 2023,
+    type: "鐭墽",
+    genres: ["鐭墽", "鍠滃墽", "鍙よ"],
+    durationMinutes: 10,
+    poster: "鍏?,
+    summary: "杞诲枩鍓х煭鍓э紝鑺傚鏉惧揩锛岄€傚悎涓嶆兂鐪嬪お閲嶅墽鎯呮椂闅忔墜鎵撳紑銆?,
+    directors: [],
+    actors: ["闄堣吘璺?, "灞堟ⅵ姹?],
+    moods: ["杞绘澗"],
+    companions: ["鏈嬪弸", "鐙嚜"],
+    platforms: [makePlatform("鑵捐瑙嗛", "鍏ㄨ祫杩涚粍", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("绾㈡灉鐭墽", "鍏ㄨ祫杩涚粍"), makePlatform("鎶栭煶鐭墽", "鍏ㄨ祫杩涚粍")],
+  },
+  {
+    id: "m-43",
+    title: "椋庢湀鍙?,
+    alias: "Butterflied Lover",
+    year: 2023,
+    type: "鐭墽",
+    genres: ["鐭墽", "鍙よ", "濂囧够", "鐖辨儏"],
+    durationMinutes: 15,
+    poster: "椋?,
+    summary: "鍙よ濂囧够鐭墽锛岃瀹氭劅寮猴紝閫傚悎鍠滄鐖辨儏鍜屾偓蹇靛苟閲嶇殑瑙備紬銆?,
+    directors: [],
+    actors: ["鍚曞皬闆?, "璧靛紙閽?],
+    moods: ["鍒烘縺", "娌绘剤"],
+    companions: ["鎯呬荆", "鐙嚜"],
+    platforms: [makePlatform("鑺掓灉TV", "椋庢湀鍙?, "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("绾㈡灉鐭墽", "椋庢湀鍙?), makePlatform("鎶栭煶鐭墽", "椋庢湀鍙?)],
+  },
+  {
+    id: "m-44",
+    title: "鎺堝ス浠ユ焺",
+    alias: "Give Her a Crown",
+    year: 2024,
+    type: "鐭墽",
+    genres: ["鐭墽", "鍙よ", "鐖辨儏", "閫嗚"],
+    durationMinutes: 12,
+    poster: "鏌?,
+    summary: "鍙よ鏉冭皨鐖辨儏鐭墽锛屼富鎵撳叧绯绘媺鎵拰濂虫€ф垚闀裤€?,
+    directors: [],
+    actors: ["鏉庤彶", "鏄庡姞鍔?],
+    moods: ["鍒烘縺", "鐑ц剳"],
+    companions: ["鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("鑵捐瑙嗛", "鎺堝ス浠ユ焺", "浼氬憳/鎼滅储鍏ュ彛"), makePlatform("绾㈡灉鐭墽", "鎺堝ス浠ユ焺"), makePlatform("蹇墜灏忓墽鍦?, "鎺堝ス浠ユ焺")],
+  },
+  {
+    id: "m-45",
+    title: "鐭墽鐑锛氶兘甯傞€嗚",
+    alias: "Short Drama Hotlist: Urban Comeback",
+    year: 2026,
+    type: "鐭墽",
+    genres: ["鐭墽", "閮藉競", "閫嗚", "鐖藉墽"],
+    durationMinutes: 5,
+    poster: "閫?,
+    summary: "鑱氬悎閮藉競閫嗚绫荤煭鍓ф悳绱㈠叆鍙ｏ紝閫傚悎鎸夐鏉愭壘绾㈡灉銆佹姈闊炽€佸揩鎵嬩笂鐨勭儹闂ㄧ煭鍓с€?,
+    directors: [],
+    actors: ["鐭墽婕斿憳"],
+    moods: ["鍒烘縺", "杞绘澗"],
+    companions: ["鐙嚜", "鏈嬪弸"],
+    platforms: [makePlatform("绾㈡灉鐭墽", "閮藉競閫嗚鐭墽", "鍏嶈垂/鎼滅储鍏ュ彛"), makePlatform("鎶栭煶鐭墽", "閮藉競閫嗚鐭墽"), makePlatform("蹇墜灏忓墽鍦?, "閮藉競閫嗚鐭墽")],
+  },
+  {
+    id: "m-46",
+    title: "鐭墽鐑锛氱敎瀹犺█鎯?,
+    alias: "Short Drama Hotlist: Romance",
+    year: 2026,
+    type: "鐭墽",
+    genres: ["鐭墽", "鐢滃疇", "鐖辨儏", "閮藉競"],
+    durationMinutes: 5,
+    poster: "鐢?,
+    summary: "鑱氬悎鐢滃疇瑷€鎯呯被鐭墽鎼滅储鍏ュ彛锛岄€傚悎蹇€熻烦鍒板悇骞冲彴鎵惧悓绫荤煭鍓с€?,
+    directors: [],
+    actors: ["鐭墽婕斿憳"],
+    moods: ["杞绘澗", "娌绘剤"],
+    companions: ["鐙嚜", "鎯呬荆"],
+    platforms: [makePlatform("绾㈡灉鐭墽", "鐢滃疇瑷€鎯呯煭鍓?, "鍏嶈垂/鎼滅储鍏ュ彛"), makePlatform("鎶栭煶鐭墽", "鐢滃疇瑷€鎯呯煭鍓?), makePlatform("蹇墜灏忓墽鍦?, "鐢滃疇瑷€鎯呯煭鍓?)],
+  },
+];
+
+const expandedCatalogTitles = `
+钘忔捣浼爘鍓ч泦|2025|鍓ф儏,鍙よ|鑲栨垬,寮犲┃浠獆鑵捐瑙嗛,鐖卞鑹?璧村北娴穦鍓ч泦|2025|姝︿緺,鍙よ,鍓ф儏|鎴愭瘏,鍙ゅ姏濞滄墡|鑵捐瑙嗛,鐖卞鑹?鍥借壊鑺冲崕|鍓ч泦|2025|鍓ф儏,鍙よ,鐖辨儏|鏉ㄧ传,鏉庣幇|鑺掓灉TV,鑵捐瑙嗛
+闀垮畨浜屽崄鍥涜|鍓ч泦|2025|鎮枒,鍙よ|鎴愭瘏,鍒樺鍚泑鑵捐瑙嗛,鐖卞鑹?鑻﹀敖鏌戞潵閬囪浣爘鍓ч泦|2025|鍓ф儏,鍘嗗彶,鐖辨儏|鏉庣煡鎭?鏈村疂鍓憒Netflix
+澶╁湴鍓戝績|鍓ч泦|2025|鍓ф儏,鐖辨儏,濂囧够|鎴愭瘏,鏉庝竴妗恷鑵捐瑙嗛,鐖卞鑹?鍒╁墤路鐜懓|鍓ч泦|2025|鐘姜,鎮枒|杩附鐑反,閲戜笘浣硘鑵捐瑙嗛,鐖卞鑹?鐢熶竾鐗﹟鍓ч泦|2025|鍓ф儏|鏉ㄥ箓,娆ц豹|鐖卞鑹?鑵捐瑙嗛
+闅惧搫|鍓ч泦|2025|鐖辨儏,鍓ф儏|鐧芥暚浜?绔犺嫢妤爘浼橀叿,鑵捐瑙嗛
+璁告垜鑰€鐪紎鍓ч泦|2025|鐖辨儏,鍓ф儏|璧甸湶鎬?闄堜紵闇唡鑵捐瑙嗛,Netflix
+浜旂涓撮棬|鍓ч泦|2025|鍠滃墽,鍙よ|鍗㈡槺鏅?鐜嬫槦瓒妡鑺掓灉TV,鑵捐瑙嗛
+鍢橈紝鍥界帇鍦ㄥ啲鐪爘鍓ч泦|2025|鐖辨儏,鍓ф儏|铏炰功娆?鏋椾竴|鑵捐瑙嗛,鐖卞鑹?楠勯槼浼兼垜|鍓ч泦|2025|鐖辨儏,鍓ф儏|瀹嬪▉榫?璧典粖楹鑵捐瑙嗛,浼橀叿
+鑺卞紑閿︾唬|鍓ч泦|2026|鍓ф儏,鍙よ|涓佺鍏?閭撴仼鐔檤鑵捐瑙嗛,鐖卞鑹?甯堝厔澶ǔ鍋鍓ч泦|2026|鍓ф儏,濂囧够,鍙よ|鏁栫憺楣?瀛欑弽濡畖鑵捐瑙嗛,鐖卞鑹?澶╂墠濂冲弸|鍓ч泦|2026|鐖辨儏,鍓ф儏|鐢版洣钖?鑳′竴澶﹟鑵捐瑙嗛,浼橀叿
+涔濋棬|鍓ч泦|2026|鍓ф儏,鎮枒|闄堜紵闇?鏇捐垳鏅瀨鐖卞鑹?鑵捐瑙嗛
+鑾|鍓ч泦|2026|鐖辨儏,鍙よ|鐧介箍,寮犲噷璧珅鑵捐瑙嗛,浼橀叿
+缈樻|鍓ч泦|2026|鍓ф儏,鐖辨儏|鍛ㄤ篃,鐜嬫槦瓒妡鑵捐瑙嗛,鑺掓灉TV
+寰″环璋鍓ч泦|2026|鍙よ,鐖辨儏|瀛熷瓙涔?寮犲噷璧珅鑵捐瑙嗛,鐖卞鑹?鍝悞涔嬮瓟绔ラ椆娴穦鐢靛奖|2025|鍔ㄧ敾,濂囧够,鍠滃墽|鍝悞,鏁栦笝|鑵捐瑙嗛,鐖卞鑹?浼橀叿
+鍗椾含鐓х浉棣唡鐢靛奖|2025|鍓ф儏,鍘嗗彶|鍒樻槉鐒?鐜嬩紶鍚泑鑵捐瑙嗛,鐖卞鑹?娴氮灞卞皬濡栨€獆鐢靛奖|2025|鍔ㄧ敾,鍠滃墽,濂囧够|鍔ㄧ敾瑙掕壊|鑵捐瑙嗛,浼橀叿,鍝斿摡鍝斿摡
+闀垮畨鐨勮崝鏋潀鐢靛奖|2025|鍓ф儏,鍘嗗彶,鍠滃墽|澶ч箯,鐧藉|鑵捐瑙嗛,鐖卞鑹?鎹曢杩藉奖|鐢靛奖|2025|鍓ф儏,鍔ㄤ綔,鐘姜|鎴愰緳,寮犲瓙鏋珅鑵捐瑙嗛,浼橀叿
+灏佺绗簩閮細鎴樼伀瑗垮矏|鐢靛奖|2025|鍔ㄤ綔,鎴樹簤,濂囧够|榛勬袱,浜庨€倈鑵捐瑙嗛,浼橀叿
+鍞愭帰1900|鐢靛奖|2025|鍠滃墽,鎮枒|鐜嬪疂寮?鍒樻槉鐒秥鑵捐瑙嗛,鐖卞鑹?鐤媯鍔ㄧ墿鍩?|鐢靛奖|2025|鍔ㄧ敾,鍠滃墽,鍐掗櫓|鏈辫开,灏煎厠|Disney+,鑵捐瑙嗛
+蹇楁効鍐涳細娴磋鍜屽钩|鐢靛奖|2025|鍓ф儏,鎴樹簤,鍘嗗彶|寮犲瓙鏋?瀹嬩匠|鑵捐瑙嗛,鐖卞鑹?娴氮浜虹敓|鐢靛奖|2025|鍓ф儏,鍠滃墽|榛勬袱,鑼冧笧涓瀨鑵捐瑙嗛,浼橀叿
+涓存椂鍐虫枟|鐢靛奖|2025|鍠滃墽,鍔ㄤ綔|鍙ゅぉ涔?姊佸拸鐞獆鑵捐瑙嗛,鐖卞鑹?731|鐢靛奖|2025|鍓ф儏,鍘嗗彶|濮滄,鐜嬪織鏂噟鑵捐瑙嗛,鐖卞鑹?閰卞洯寮剕鐢靛奖|2025|鍓ф儏,鎮枒|绔犲瓙鎬?闆蜂匠闊硘鑵捐瑙嗛,鐖卞鑹?灏勯洉鑻遍泟浼狅細渚犱箣澶ц€厊鐢靛奖|2025|姝︿緺,鍔ㄤ綔|鑲栨垬,搴勮揪鑿瞸鑵捐瑙嗛,浼橀叿
+铔熼緳琛屽姩|鐢靛奖|2025|鍔ㄤ綔,鎴樹簤|榛勮僵,浜庨€倈鑵捐瑙嗛,鐖卞鑹?灏忓皬鐨勬垜|鐢靛奖|2024|鍓ф儏,娌绘剤|鏄撶儕鍗冪幒,鏋楁檽鏉皘鑵捐瑙嗛,鐖卞鑹?濂戒笢瑗縷鐢靛奖|2024|鍓ф儏,鍠滃墽|瀹嬩匠,閽熸鏇鑵捐瑙嗛,鐖卞鑹?鎶撳▋濞億鐢靛奖|2024|鍠滃墽,鍓ф儏|娌堣吘,椹附|鑵捐瑙嗛,浼橀叿
+绗簩鍗佹潯|鐢靛奖|2024|鍓ф儏,鍠滃墽|闆蜂匠闊?椹附|鑵捐瑙嗛,鐖卞鑹?鐑荆婊氱儷|鐢靛奖|2024|鍠滃墽,鍓ф儏|璐剧幉,闆蜂匠闊硘鑵捐瑙嗛,浼橀叿
+椋為┌浜虹敓2|鐢靛奖|2024|鍠滃墽,鍔ㄤ綔|娌堣吘,鑼冧笧涓瀨鑵捐瑙嗛,鐖卞鑹?骞翠細涓嶈兘鍋滐紒|鐢靛奖|2023|鍠滃墽,鍓ф儏|澶ч箯,鐧藉|鍝斿摡鍝斿摡,鑵捐瑙嗛
+娴佹氮鍦扮悆2|鐢靛奖|2023|绉戝够,鍔ㄤ綔,鍓ф儏|鍚翠含,鍒樺痉鍗巪鑵捐瑙嗛,鐖卞鑹?浼橀叿
+灏佺绗竴閮▅鐢靛奖|2023|鍔ㄤ綔,鍐掗櫓,鍓ф儏|璐圭繑,鏉庨洩鍋鑵捐瑙嗛,浼橀叿
+闀垮畨涓変竾閲寍鐢靛奖|2023|鍔ㄧ敾,鍓ф儏,鍘嗗彶|鏉ㄥぉ缈?鍑屾尟璧珅浼橀叿,鑵捐瑙嗛
+婊℃睙绾鐢靛奖|2023|鎮枒,鍠滃墽,鍓ф儏|娌堣吘,鏄撶儕鍗冪幒|鑵捐瑙嗛,鐖卞鑹?瀛ゆ敞涓€鎺穦鐢靛奖|2023|鐘姜,鍓ф儏|寮犺壓鍏?閲戞櫒|鑵捐瑙嗛,鐖卞鑹?娑堝け鐨勫ス|鐢靛奖|2023|鎮枒,鐘姜|鏈变竴榫?鍊Ξ|鑵捐瑙嗛,鐖卞鑹?鍏绗间腑|鐢靛奖|2023|鍓ф儏,鍔ㄤ綔|鐜嬪疂寮?闄堟案鑳渱鑵捐瑙嗛,浼橀叿
+娣辨捣|鐢靛奖|2023|鍔ㄧ敾,濂囧够|鑻忛懌,鐜嬩涵鏂噟鑵捐瑙嗛,鍝斿摡鍝斿摡
+鏃犲悕|鐢靛奖|2023|鍓ф儏,鎮枒|姊佹湞浼?鐜嬩竴鍗殀鑵捐瑙嗛,鐖卞鑹?娴佹氮鍦扮悆|鐢靛奖|2019|绉戝够,鍔ㄤ綔|鍚翠含,灞堟钀鑵捐瑙嗛,鐖卞鑹?鍝悞涔嬮瓟绔ラ檷涓東鐢靛奖|2019|鍔ㄧ敾,濂囧够,鍠滃墽|鍝悞,鏁栦笝|鑵捐瑙嗛,鐖卞鑹?浣犲ソ锛屾潕鐒曡嫳|鐢靛奖|2021|鍠滃墽,鍓ф儏|璐剧幉,寮犲皬鏂恷鑵捐瑙嗛,鐖卞鑹?闀挎触婀東鐢靛奖|2021|鎴樹簤,鍘嗗彶,鍓ф儏|鍚翠含,鏄撶儕鍗冪幒|鑵捐瑙嗛,鐖卞鑹?鎴樼嫾2|鐢靛奖|2017|鍔ㄤ綔,鎴樹簤|鍚翠含,寮楀叞鍏嬄锋牸閲岀綏|鑵捐瑙嗛,浼橀叿
+鎴戜笉鏄嵂绁瀨鐢靛奖|2018|鍓ф儏,鍠滃墽|寰愬偿,鐜嬩紶鍚泑鑵捐瑙嗛,鐖卞鑹?璁╁瓙寮归|鐢靛奖|2010|鍓ф儏,鍠滃墽,鍔ㄤ綔|濮滄枃,钁涗紭|鍝斿摡鍝斿摡,鑵捐瑙嗛
+鏃犻棿閬搢鐢靛奖|2002|鐘姜,鍓ф儏,鎮枒|鍒樺痉鍗?姊佹湞浼焲鑵捐瑙嗛,浼橀叿
+闇哥帇鍒К|鐢靛奖|1993|鍓ф儏,鐖辨儏|寮犲浗鑽?寮犱赴姣厊鑵捐瑙嗛,鐖卞鑹?娲荤潃|鐢靛奖|1994|鍓ф儏,鍘嗗彶|钁涗紭,宸╀繍|鑵捐瑙嗛,浼橀叿
+澶ц瘽瑗挎父涔嬫湀鍏夊疂鐩抾鐢靛奖|1995|鍠滃墽,鐖辨儏,濂囧够|鍛ㄦ槦椹?鍚村瓱杈緗鑵捐瑙嗛,鐖卞鑹?澶ц瘽瑗挎父涔嬪ぇ鍦ｅǘ浜瞸鐢靛奖|1995|鍠滃墽,鐖辨儏,濂囧够|鍛ㄦ槦椹?鏈辫尩|鑵捐瑙嗛,鐖卞鑹?鍔熷か|鐢靛奖|2004|鍠滃墽,鍔ㄤ綔|鍛ㄦ槦椹?鍏冪|鑵捐瑙嗛,浼橀叿
+鍠滃墽涔嬬帇|鐢靛奖|1999|鍠滃墽,鍓ф儏|鍛ㄦ槦椹?寮犳煆鑺潀鑵捐瑙嗛,浼橀叿
+灏戞灄瓒崇悆|鐢靛奖|2001|鍠滃墽,鍔ㄤ綔|鍛ㄦ槦椹?璧佃枃|鑵捐瑙嗛,浼橀叿
+鑻遍泟|鐢靛奖|2002|鍔ㄤ綔,姝︿緺|鏉庤繛鏉?姊佹湞浼焲鑵捐瑙嗛,鐖卞鑹?鍗ц檸钘忛緳|鐢靛奖|2000|鍔ㄤ綔,姝︿緺,鐖辨儏|鍛ㄦ鼎鍙?鏉ㄧ传鐞紎鑵捐瑙嗛,鐖卞鑹?鑺辨牱骞村崕|鐢靛奖|2000|鐖辨儏,鍓ф儏|姊佹湞浼?寮犳浖鐜墊鑵捐瑙嗛,鐖卞鑹?閲嶅簡妫灄|鐢靛奖|1994|鐖辨儏,鍓ф儏|姊佹湞浼?鐜嬭彶|鑵捐瑙嗛,浼橀叿
+涓€浠ｅ畻甯坾鐢靛奖|2013|鍔ㄤ綔,浼犺|姊佹湞浼?绔犲瓙鎬鑵捐瑙嗛,鐖卞鑹?鑹诧紝鎴抾鐢靛奖|2007|鍓ф儏,鐖辨儏|姊佹湞浼?姹ゅ敮|鑵捐瑙嗛,鐖卞鑹?灏戝勾鐨勪綘|鐢靛奖|2019|鍓ф儏,鐘姜|鍛ㄥ啲闆?鏄撶儕鍗冪幒|鑵捐瑙嗛,鐖卞鑹?涓冩湀涓庡畨鐢焲鐢靛奖|2016|鍓ф儏,鐖辨儏|鍛ㄥ啲闆?椹€濈函|鑵捐瑙嗛,浼橀叿
+閫佷綘涓€鏈靛皬绾㈣姳|鐢靛奖|2020|鍓ф儏,瀹跺涵|鏄撶儕鍗冪幒,鍒樻旦瀛榺鑵捐瑙嗛,鐖卞鑹?浜虹敓澶т簨|鐢靛奖|2022|鍓ф儏,瀹跺涵|鏈变竴榫?鏉ㄦ仼鍙坾鑵捐瑙嗛,鐖卞鑹?鐙鏈堢悆|鐢靛奖|2022|鍠滃墽,绉戝够|娌堣吘,椹附|鑵捐瑙嗛,浼橀叿
+濂囪抗路绗ㄥ皬瀛﹟鐢靛奖|2022|鍓ф儏|鏄撶儕鍗冪幒,鐢伴洦|鑵捐瑙嗛,鐖卞鑹?鐖辨儏绁炶瘽|鐢靛奖|2021|鐖辨儏,鍠滃墽|寰愬偿,椹紛鐞峾鑵捐瑙嗛,鐖卞鑹?鎵悕绔嬩竾|鐢靛奖|2021|鍠滃墽,鎮枒|灏规,閭撳浣硘鑵捐瑙嗛,鐖卞鑹?鎮礀涔嬩笂|鐢靛奖|2021|鍓ф儏,鎮枒|寮犺瘧,浜庡拰浼焲鑵捐瑙嗛,鐖卞鑹?鍒烘潃灏忚瀹秥鐢靛奖|2021|鍔ㄤ綔,濂囧够|闆蜂匠闊?鏉ㄥ箓|鑵捐瑙嗛,鐖卞鑹?绾㈡捣琛屽姩|鐢靛奖|2018|鍔ㄤ綔,鎴樹簤|寮犺瘧,榛勬櫙鐟渱鑵捐瑙嗛,浼橀叿
+婀勫叕娌宠鍔▅鐢靛奖|2016|鍔ㄤ綔,鐘姜|寮犳兜浜?褰簬鏅弢鑵捐瑙嗛,浼橀叿
+鐑堟棩鐏煎績|鐢靛奖|2015|鐘姜,鍓ф儏|閭撹秴,娈靛瀹弢鑵捐瑙嗛,鐖卞鑹?鍞愪汉琛楁帰妗坾鐢靛奖|2015|鍠滃墽,鎮枒|鐜嬪疂寮?鍒樻槉鐒秥鑵捐瑙嗛,鐖卞鑹?鍞愪汉琛楁帰妗?|鐢靛奖|2018|鍠滃墽,鎮枒|鐜嬪疂寮?鍒樻槉鐒秥鑵捐瑙嗛,鐖卞鑹?鍞愪汉琛楁帰妗?|鐢靛奖|2021|鍠滃墽,鎮枒|鐜嬪疂寮?鍒樻槉鐒秥鑵捐瑙嗛,鐖卞鑹?浣犲ソ锛岀柉瀛愶紒|鐢靛奖|2016|鍓ф儏,鍠滃墽|涓囪寽,鍛ㄤ竴鍥磡鑵捐瑙嗛,鐖卞鑹?椹村緱姘磡鐢靛奖|2016|鍓ф儏,鍠滃墽|浠荤礌姹?澶у姏|鑵捐瑙嗛,浼橀叿
+鏃犲悕涔嬭緢|鐢靛奖|2018|鍓ф儏,鍠滃墽|闄堝缓鏂?浠荤礌姹恷鑵捐瑙嗛,鐖卞鑹?蹇冭糠瀹珅鐢靛奖|2014|鍓ф儏,鎮枒|闇嶅崼姘?鐜嬬瑧澶﹟鑵捐瑙嗛,鐖卞鑹?鏆磋鏃犲０|鐢靛奖|2017|鍓ф儏,鎮枒|瀹嬫磱,濮滄|鑵捐瑙嗛,鐖卞鑹?鐧芥棩鐒扮伀|鐢靛奖|2014|鐘姜,鎮枒|寤栧嚒,妗傜憾闀亅鑵捐瑙嗛,鐖卞鑹?鍦扮悆鏈€鍚庣殑澶滄櫄|鐢靛奖|2018|鍓ф儏,鎮枒|姹ゅ敮,榛勮|鑵捐瑙嗛,鐖卞鑹?璺竟閲庨|鐢靛奖|2015|鍓ф儏|闄堟案蹇?璋㈢悊寰獆鑵捐瑙嗛,鐖卞鑹?闅愬叆灏樼儫|鐢靛奖|2022|鍓ф儏|姝︿粊鏋?娴锋竻|鑵捐瑙嗛,鐖卞鑹?婕暱鐨勫鑺倈鍓ч泦|2023|鎮枒,鐘姜,鍓ф儏|鑼冧紵,绉︽槉|鑵捐瑙嗛
+鐙傞|鍓ч泦|2023|鐘姜,鍓ф儏,鎮枒|寮犺瘧,寮犻鏂噟鐖卞鑹?绻佽姳|鍓ч泦|2023|鍓ф儏,鐖辨儏|鑳℃瓕,椹紛鐞峾鑵捐瑙嗛
+涓変綋|鍓ч泦|2023|绉戝够,鎮枒,鍓ф儏|寮犻瞾涓€,浜庡拰浼焲鑵捐瑙嗛,Netflix
+鎴戠殑闃垮嫆娉皘鍓ч泦|2024|鍓ф儏,娌绘剤|椹紛鐞?鍛ㄤ緷鐒秥鐖卞鑹?搴嗕綑骞寸浜屽|鍓ч泦|2024|鍓ф儏,鍠滃墽,鍙よ|寮犺嫢鏄€,鏉庢瞾|鑵捐瑙嗛
+涓庡嚖琛寍鍓ч泦|2024|鐖辨儏,濂囧够,鍙よ|璧典附棰?鏋楁洿鏂皘鑵捐瑙嗛
+鐜懓鐨勬晠浜媩鍓ч泦|2024|鍓ф儏,鐖辨儏|鍒樹害鑿?浣熷ぇ涓簗鑵捐瑙嗛
+杈规按寰€浜媩鍓ч泦|2024|鍓ф儏,鎮枒|閮簰楹?鍚撮晣瀹噟浼橀叿
+灏忓贩浜哄|鍓ч泦|2024|鍓ф儏,瀹跺涵|闂Ξ,鏉庡厜娲亅婀栧崡鍗,鑺掓灉TV
+杩介鑰厊鍓ч泦|2024|鍓ф儏,璋嶆垬|鐜嬩竴鍗?鏉庢瞾|鐖卞鑹?鍗楁潵鍖楀線|鍓ч泦|2024|鍓ф儏,瀹跺涵|鐧芥暚浜?涓佸媷宀眧鐖卞鑹?鍝堝皵婊ㄤ竴涔濆洓鍥泑鍓ч泦|2024|鍓ф儏,鎮枒|绉︽槉,鏉ㄥ箓|鐖卞鑹?澧ㄩ洦浜戦棿|鍓ч泦|2024|鐖辨儏,鍙よ|鍚磋皑瑷€,鐜嬫槦瓒妡浼橀叿
+涔濋噸绱珅鍓ч泦|2024|鐖辨儏,鍙よ|瀛熷瓙涔?鏉庢榾閿恷鑵捐瑙嗛
+鍞愭湞璇′簨褰曚箣瑗胯|鍓ч泦|2024|鎮枒,鍙よ|鏉ㄦ棴鏂?鏉ㄥ織鍒殀鐖卞鑹?姘稿鏄熸渤|鍓ч泦|2024|鐖辨儏,濂囧够,鍙よ|铏炰功娆?涓佺鍏畖鑵捐瑙嗛
+鏄ヨ壊瀵勬儏浜簗鍓ч泦|2024|鐖辨儏,鍓ф儏|鏉庣幇,鍛ㄩ洦褰鑵捐瑙嗛
+澶фⅵ褰掔|鍓ч泦|2024|濂囧够,鍙よ|渚槑鏄?闄堥兘鐏祙鐖卞鑹?鏌宠垷璁皘鍓ч泦|2024|鐖辨儏,鍙よ|寮犳櫄鎰?鐜嬫鐒秥鑵捐瑙嗛
+娴佹按杩㈣竣|鍓ч泦|2024|鐖辨儏,鍙よ|浠诲槈浼?鏉庡叞杩獆鑵捐瑙嗛
+鍑′汉姝寍鍓ч泦|2024|鍓ф儏,閮藉競|娈锋,鐜嬮獊|鑵捐瑙嗛
+浣犳瘮鏄熷厜缇庝附|鍓ч泦|2024|鐖辨儏,閮藉競|璋澗闊?璁稿嚡|鑵捐瑙嗛
+搴﹀崕骞磡鍓ч泦|2024|鐖辨儏,鍙よ|璧典粖楹?寮犲噷璧珅浼橀叿
+鎯滆姳鑺穦鍓ч泦|2024|鍓ф儏,鍙よ|鑳′竴澶?寮犲┃浠獆浼橀叿
+鎵挎璁皘鍓ч泦|2024|鍓ф儏,瀹跺涵|鏉ㄧ传,璁稿嚡|鑵捐瑙嗛
+鐚庡啺|鍓ч泦|2024|鐘姜,鎮枒|寮犻鏂?濮氬畨濞渱鑵捐瑙嗛
+鍦ㄦ毚闆椂鍒唡鍓ч泦|2024|鐖辨儏,鍓ф儏|鍚寸,璧典粖楹鑵捐瑙嗛
+寰堟兂寰堟兂浣爘鍓ч泦|2023|鐖辨儏,鍓ф儏|妾€鍋ユ,鍛ㄤ篃|鑵捐瑙嗛
+鑾茶姳妤紎鍓ч泦|2023|姝︿緺,鎮枒|鎴愭瘏,鏇捐垳鏅瀨鐖卞鑹?闀跨浉鎬潀鍓ч泦|2023|鐖辨儏,鍙よ,濂囧够|鏉ㄧ传,寮犳櫄鎰弢鑵捐瑙嗛
+鍋峰伔钘忎笉浣弢鍓ч泦|2023|鐖辨儏,闈掓槬|璧甸湶鎬?闄堝摬杩渱浼橀叿
+鍘绘湁椋庣殑鍦版柟|鍓ч泦|2023|娌绘剤,鐖辨儏,鍓ф儏|鍒樹害鑿?鏉庣幇|鑺掓灉TV,鑵捐瑙嗛
+寮€绔瘄鍓ч泦|2022|鎮枒,绉戝够|鐧芥暚浜?璧典粖楹鑵捐瑙嗛
+浜轰笘闂磡鍓ч泦|2022|鍓ф儏,瀹跺涵|闆蜂匠闊?杈涙煆闈抾鐖卞鑹?鑻嶅叞璇€|鍓ч泦|2022|鐖辨儏,濂囧够,鍙よ|铏炰功娆?鐜嬮工妫鐖卞鑹?姊﹀崕褰晐鍓ч泦|2022|鐖辨儏,鍙よ|鍒樹害鑿?闄堟檽|鑵捐瑙嗛
+椋庤捣闄囪タ|鍓ч泦|2022|璋嶆垬,鍙よ|闄堝潳,鐧藉畤|鐖卞鑹?璀﹀療鑽ｈ獕|鍓ч泦|2022|鍓ф儏,閮藉競|寮犺嫢鏄€,鐧介箍|鐖卞鑹?闅愮鐨勮钀絴鍓ч泦|2020|鎮枒,鐘姜,鍓ф儏|绉︽槉,鐜嬫櫙鏄鐖卞鑹?娌夐粯鐨勭湡鐩竱鍓ч泦|2020|鎮枒,鐘姜,鍓ф儏|寤栧嚒,鐧藉畤|鐖卞鑹?灞辨捣鎯厊鍓ч泦|2021|鍓ф儏,鎵惰传|榛勮僵,寮犲槈鐩妡鑵捐瑙嗛
+瑙夐啋骞翠唬|鍓ч泦|2021|鍘嗗彶,鍓ф儏|浜庡拰浼?寮犳|鑵捐瑙嗛
+鍙涢€嗚€厊鍓ч泦|2021|璋嶆垬,鍓ф儏|鏈变竴榫?绔ョ懚|鐖卞鑹?璧樺┛|鍓ч泦|2021|鍠滃墽,鍙よ|閮簰楹?瀹嬭蕉|鐖卞鑹?鎵粦椋庢毚|鍓ч泦|2021|鐘姜,鍓ф儏|瀛欑孩闆?寮犺壓鍏磡鑵捐瑙嗛
+鍙歌棨|鍓ч泦|2021|鐖辨儏,濂囧够|鏅敎,寮犲浆褰瑋鑵捐瑙嗛
+椋庤捣娲涢槼|鍓ч泦|2021|鎮枒,鍙よ|榛勮僵,鐜嬩竴鍗殀鐖卞鑹?鍛ㄧ敓濡傛晠|鍓ч泦|2021|鐖辨儏,鍙よ|浠诲槈浼?鐧介箍|鐖卞鑹?涓€鐢熶竴涓東鍓ч泦|2021|鐖辨儏,鍓ф儏|浠诲槈浼?鐧介箍|鐖卞鑹?浣犳槸鎴戠殑鑽ｈ€€|鍓ч泦|2021|鐖辨儏,閮藉競|鏉ㄦ磱,杩附鐑反|鑵捐瑙嗛
+闄堟儏浠鍓ч泦|2019|鍓ф儏,鍙よ|鑲栨垬,鐜嬩竴鍗殀鑵捐瑙嗛
+鐞呯悐姒渱鍓ч泦|2015|鍓ф儏,鍙よ|鑳℃瓕,鍒樻稕|鑵捐瑙嗛
+鐢勫瑳浼爘鍓ч泦|2011|鍓ф儏,鍘嗗彶|瀛欎开,闄堝缓鏂寍浼橀叿,鑵捐瑙嗛
+鐭ュ惁鐭ュ惁搴旀槸缁胯偉绾㈢槮|鍓ч泦|2018|鍓ф儏,鍙よ|璧典附棰?鍐粛宄皘鑵捐瑙嗛
+浼鑰厊鍓ч泦|2015|璋嶆垬,鍓ф儏|鑳℃瓕,闈充笢|鑵捐瑙嗛
+鐖舵瘝鐖辨儏|鍓ч泦|2014|鍓ф儏,瀹跺涵|閮稕,姊呭┓|鑵捐瑙嗛
+姝︽灄澶栦紶|鍓ч泦|2006|鍠滃墽,鍙よ|闂Ξ,濮氭櫒|鑵捐瑙嗛
+澹叺绐佸嚮|鍓ч泦|2006|鍓ф儏,鍐涙梾|鐜嬪疂寮?闄堟€濊瘹|鑵捐瑙嗛
+澶ф槑鐜嬫湞1566|鍓ч泦|2007|鍘嗗彶,鍓ф儏|闄堝疂鍥?榛勫織蹇爘浼橀叿
+鐧藉杩藉嚩|鍓ч泦|2017|鎮枒,鐘姜|娼樼菠鏄?鐜嬫撤姝浼橀叿
+鏃犺瘉涔嬬姜|鍓ч泦|2017|鎮枒,鐘姜|绉︽槉,閭撳浣硘鐖卞鑹?娌崇|鍓ч泦|2017|鎮枒,濂囧够|鏉庣幇,寮犻摥鎭﹟鐖卞鑹?妫嬮瓊|鍓ч泦|2020|鍓ф儏,闈掓槬|鑳″厛鐓?寮犺秴|鐖卞鑹?鎯宠浣爘鍓ч泦|2019|鐖辨儏,鎮枒|鏌匠瀣?璁稿厜姹墊鑵捐瑙嗛
+鎯宠浣犵數褰辩増|鐢靛奖|2022|鐖辨儏,鎮枒|鏌匠瀣?璁稿厜姹墊鑵捐瑙嗛
+鐖卞緢缇庡懗|鍓ч泦|2021|鍓ф儏,鐖辨儏|鏉庣函,寮犲惈闊祙鑵捐瑙嗛
+鐖辨儏鑰屽凡|鍓ч泦|2023|鐖辨儏,鍓ф儏|鍚寸,鍛ㄩ洦褰鑵捐瑙嗛
+涓浗濂囪碍|鍔ㄦ极|2023|鍔ㄧ敾,濂囧够,鍓ф儏|涓婃捣缇庢湳鐢靛奖鍒剁墖鍘倈鍝斿摡鍝斿摡
+闆惧北浜旇|鍔ㄦ极|2020|鍔ㄧ敾,鍔ㄤ綔,濂囧够|鍔ㄧ敾瑙掕壊|鍝斿摡鍝斿摡
+鍑′汉淇粰浼爘鍔ㄦ极|2020|鍔ㄧ敾,濂囧够,鍐掗櫓|闊╃珛|鍝斿摡鍝斿摡
+鐏电|鍔ㄦ极|2019|鍔ㄧ敾,绉戝够,鍔ㄤ綔|鍔ㄧ敾瑙掕壊|鍝斿摡鍝斿摡
+鏃跺厜浠ｇ悊浜簗鍔ㄦ极|2021|鍔ㄧ敾,鎮枒|绋嬪皬鏃?闄嗗厜|鍝斿摡鍝斿摡
+缃楀皬榛戞垬璁皘鐢靛奖|2019|鍔ㄧ敾,濂囧够,娌绘剤|缃楀皬榛憒鍝斿摡鍝斿摡
+缃楀皬榛戞垬璁?|鐢靛奖|2025|鍔ㄧ敾,濂囧够,鍐掗櫓|缃楀皬榛憒鍝斿摡鍝斿摡
+闆勭嫯灏戝勾|鐢靛奖|2021|鍔ㄧ敾,鍓ф儏|鍔ㄧ敾瑙掕壊|鑵捐瑙嗛,鍝斿摡鍝斿摡
+澶ч奔娴锋|鐢靛奖|2016|鍔ㄧ敾,濂囧够|妞?椴瞸鑵捐瑙嗛,鍝斿摡鍝斿摡
+鐧借泧锛氱紭璧穦鐢靛奖|2019|鍔ㄧ敾,鐖辨儏,濂囧够|鐧借泧,璁稿|鑵捐瑙嗛,鍝斿摡鍝斿摡
+鐧借泧2锛氶潚铔囧姭璧穦鐢靛奖|2021|鍔ㄧ敾,濂囧够|灏忛潚,灏忕櫧|鑵捐瑙嗛,鍝斿摡鍝斿摡
+鏂扮姒滐細鍝悞閲嶇敓|鐢靛奖|2021|鍔ㄧ敾,鍔ㄤ綔|鏉庝簯绁?鍝悞|鑵捐瑙嗛,鍝斿摡鍝斿摡
+鏂扮姒滐細鏉ㄦ埇|鐢靛奖|2022|鍔ㄧ敾,鍔ㄤ綔,濂囧够|鏉ㄦ埇|鑵捐瑙嗛,鍝斿摡鍝斿摡
+娣辨捣|鐢靛奖|2023|鍔ㄧ敾,濂囧够|鍙傚,鍗楁渤|鑵捐瑙嗛,鍝斿摡鍝斿摡
+澶ф姢娉晐鐢靛奖|2017|鍔ㄧ敾,濂囧够|鍔ㄧ敾瑙掕壊|鑵捐瑙嗛,鍝斿摡鍝斿摡
+濮滃瓙鐗檤鐢靛奖|2020|鍔ㄧ敾,濂囧够|濮滃瓙鐗檤鑵捐瑙嗛,鐖卞鑹?榄佹嫈涔嬪崄涓囩伀鎬鐢靛奖|2011|鍔ㄧ敾,鍐掗櫓|铔悏|鑵捐瑙嗛,鍝斿摡鍝斿摡
+榄佹嫈2澶ф垬鍏冩潮鐣寍鐢靛奖|2013|鍔ㄧ敾,鍐掗櫓|铔悏|鑵捐瑙嗛,鍝斿摡鍝斿摡
+榄佹嫈3鎴樼宕涜捣|鐢靛奖|2014|鍔ㄧ敾,鍐掗櫓|铔悏|鑵捐瑙嗛,鍝斿摡鍝斿摡
+钁€佺殑鑺欒帀鑾瞸鍔ㄦ极|2023|鍔ㄧ敾,鍐掗櫓,娌绘剤|鑺欒帀鑾瞸鍝斿摡鍝斿摡
+杩涘嚮鐨勫法浜簗鍔ㄦ极|2013|鍔ㄧ敾,鍔ㄤ綔,鍓ф儏|鑹句鸡,涓夌瑺|鍝斿摡鍝斿摡
+楝肩伃涔嬪垉|鍔ㄦ极|2019|鍔ㄧ敾,鍔ㄤ綔,濂囧够|鐐不閮?绁㈣眴瀛恷鍝斿摡鍝斿摡
+鍜掓湳鍥炴垬|鍔ㄦ极|2020|鍔ㄧ敾,鍔ㄤ綔,濂囧够|铏庢潠鎮犱粊,浜旀潯鎮焲鍝斿摡鍝斿摡
+闂磋皪杩囧瀹秥鍔ㄦ极|2022|鍔ㄧ敾,鍠滃墽|闃垮凹浜?鍔冲焹寰穦鍝斿摡鍝斿摡
+瀛ょ嫭鎽囨粴锛亅鍔ㄦ极|2022|鍔ㄧ敾,鍠滃墽,闊充箰|鍚庤棨涓€閲寍鍝斿摡鍝斿摡
+鎺掔悆灏戝勾锛侊紒|鍔ㄦ极|2014|鍔ㄧ敾,杩愬姩|鏃ュ悜缈旈槼,褰卞北椋為泟|鍝斿摡鍝斿摡
+鐏岀楂樻墜|鍔ㄦ极|1993|鍔ㄧ敾,杩愬姩|妯辨湪鑺遍亾,娴佸窛鏋珅鍝斿摡鍝斿摡
+鐏岀楂樻墜 The First Slam Dunk|鐢靛奖|2022|鍔ㄧ敾,杩愬姩|瀹煄鑹敯|鍝斿摡鍝斿摡
+浣犵殑鍚嶅瓧銆倈鐢靛奖|2016|鍔ㄧ敾,鐖辨儏,濂囧够|绔嬭姳娉?瀹按涓夊彾|鍝斿摡鍝斿摡
+澶╂皵涔嬪瓙|鐢靛奖|2019|鍔ㄧ敾,鐖辨儏,濂囧够|妫矝甯嗛珮,澶╅噹闃宠彍|鍝斿摡鍝斿摡
+閾冭娊涔嬫梾|鐢靛奖|2022|鍔ㄧ敾,鍐掗櫓,濂囧够|宀╂埛閾冭娊|鍝斿摡鍝斿摡
+鍗冧笌鍗冨|鐢靛奖|2001|鍔ㄧ敾,濂囧够|鍗冨,鐧介緳|鍝斿摡鍝斿摡
+榫欑尗|鐢靛奖|1988|鍔ㄧ敾,娌绘剤,瀹跺涵|灏忔湀,灏忔|鍝斿摡鍝斿摡
+澶╃┖涔嬪煄|鐢靛奖|1986|鍔ㄧ敾,鍐掗櫓|甯岃揪,宸撮瞾|鍝斿摡鍝斿摡
+鍝堝皵鐨勭Щ鍔ㄥ煄鍫鐢靛奖|2004|鍔ㄧ敾,鐖辨儏,濂囧够|鑻忚彶,鍝堝皵|鍝斿摡鍝斿摡
+骞界伒鍏富|鐢靛奖|1997|鍔ㄧ敾,濂囧够|闃垮腑杈惧崱,鐝妡鍝斿摡鍝斿摡
+椋庝箣璋穦鐢靛奖|1984|鍔ㄧ敾,绉戝够|濞滀箤瑗垮崱|鍝斿摡鍝斿摡
+绾㈢尓|鐢靛奖|1992|鍔ㄧ敾,鍐掗櫓|娉㈤瞾鍏媩鍝斿摡鍝斿摡
+榄斿コ瀹呮€ヤ究|鐢靛奖|1989|鍔ㄧ敾,娌绘剤|鐞惇|鍝斿摡鍝斿摡
+钀ょ伀铏箣澧搢鐢靛奖|1988|鍔ㄧ敾,鎴樹簤|娓呭お,鑺傚瓙|鍝斿摡鍝斿摡
+浜虹敓绗竴娆绾綍鐗噟2020|绾綍鐗?瀹跺涵,娌绘剤|绾綍鐗囦汉鐗﹟鍝斿摡鍝斿摡,鑵捐瑙嗛
+浣嗘槸杩樻湁涔︾睄|绾綍鐗噟2019|绾綍鐗?娌绘剤|鑳℃瓕|鍝斿摡鍝斿摡
+浜虹敓鏋滃疄|绾綍鐗噟2017|绾綍鐗?娌绘剤,瀹跺涵|娲ョ淇竴,娲ョ鑻卞瓙|鍝斿摡鍝斿摡
+娌宠タ璧板粖|绾綍鐗噟2015|绾綍鐗?鍘嗗彶|绾綍鐗囦汉鐗﹟鑵捐瑙嗛,鍝斿摡鍝斿摡
+濡傛灉鍥藉疂浼氳璇潀绾綍鐗噟2018|绾綍鐗?鍘嗗彶|鏂囩墿|鍝斿摡鍝斿摡,澶棰?鎴戝湪鏁呭淇枃鐗﹟绾綍鐗噟2016|绾綍鐗?鍘嗗彶|鏂囩墿淇甯坾鍝斿摡鍝斿摡
+鑸屽皷涓婄殑涓浗|绾綍鐗噟2012|绾綍鐗?缇庨|绾綍鐗囦汉鐗﹟鑵捐瑙嗛,澶缃?椋庡懗浜洪棿|绾綍鐗噟2018|绾綍鐗?缇庨|绾綍鐗囦汉鐗﹟鑵捐瑙嗛
+鏃╅涓浗|绾綍鐗噟2019|绾綍鐗?缇庨|绾綍鐗囦汉鐗﹟鑵捐瑙嗛
+瀹堟姢瑙ｆ斁瑗縷绾綍鐗噟2019|绾綍鐗?绀句細|绾綍鐗囦汉鐗﹟鍝斿摡鍝斿摡
+缁胯壊鏄熺悆|绾綍鐗噟2022|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+钃濊壊鏄熺悆|绾綍鐗噟2001|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+钃濊壊鏄熺悆2|绾綍鐗噟2017|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+鍦扮悆鑴夊姩|绾綍鐗噟2006|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+鍦扮悆鑴夊姩2|绾綍鐗噟2016|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+鐜嬫湞|绾綍鐗噟2018|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+涓冧釜涓栫晫锛屼竴涓槦鐞億绾綍鐗噟2019|绾綍鐗?鑷劧|澶у崼路鐖辩櫥鍫鍝斿摡鍝斿摡
+瀹囧畽鏃剁┖涔嬫梾|绾綍鐗噟2014|绾綍鐗?绉戞妧|灏煎皵路寰锋牸鎷夋柉路娉版．|鍝斿摡鍝斿摡
+澶у浗閲嶅櫒|绾綍鐗噟2013|绾綍鐗?绉戞妧|绾綍鐗囦汉鐗﹟澶棰?鍝斿摡鍝斿摡
+鑸媿涓浗|绾綍鐗噟2017|绾綍鐗?鏃呰|涓浗鍦扮悊|澶棰?鍝斿摡鍝斿摡
+濂ユ湰娴烽粯|鐢靛奖|2023|鍓ф儏,鍘嗗彶,浼犺|鍩洪噷瀹壜峰ⅷ鑿?鑹剧背鑾壜峰竷鏈楃壒|鑵捐瑙嗛,Apple TV+
+娌欎笜2|鐢靛奖|2024|绉戝够,鍐掗櫓,鍔ㄤ綔|鎻愯帿瑗柯锋煡鎷夋,璧炶揪浜殀鑵捐瑙嗛,Apple TV+
+娌欎笜|鐢靛奖|2021|绉戝够,鍐掗櫓|鎻愯帿瑗柯锋煡鎷夋,涓借礉鍗÷峰紬鏍兼．|鑵捐瑙嗛,Apple TV+
+鑺瘮|鐢靛奖|2023|鍠滃墽,濂囧够|鐜涙牸鐗孤风綏姣?鐟炴仼路楂樻柉鏋梶鑵捐瑙嗛,Apple TV+
+鐬伅鍏ㄥ畤瀹檤鐢靛奖|2022|绉戝够,鍠滃墽,鍐掗櫓|鏉ㄧ传鐞?鍏崇户濞亅鑵捐瑙嗛,Apple TV+
+澹織鍑屼簯2锛氱嫭琛屼緺|鐢靛奖|2022|鍔ㄤ綔,鍓ф儏|姹ゅ路鍏嬮瞾鏂瘄鑵捐瑙嗛,Apple TV+
+闃垮嚒杈撅細姘翠箣閬搢鐢靛奖|2022|绉戝够,鍐掗櫓|钀ㄥ路娌冭緵椤?浣愪紛路绱㈠皵杈惧|Disney+,鑵捐瑙嗛
+铚樿洓渚狅細绾垫í瀹囧畽|鐢靛奖|2023|鍔ㄧ敾,鍔ㄤ綔,绉戝够|杩堝皵鏂疯帿鎷夎幈鏂瘄鑵捐瑙嗛,鍝斿摡鍝斿摡
+铚樿洓渚狅細鑻遍泟鏃犲綊|鐢靛奖|2021|鍔ㄤ綔,绉戝够|姹ゅ路璧叞寰穦鑵捐瑙嗛,Apple TV+
+澶嶄粐鑰呰仈鐩?锛氱粓灞€涔嬫垬|鐢靛奖|2019|鍔ㄤ綔,绉戝够,鍐掗櫓|灏忕綏浼壒路鍞愬凹,鍏嬮噷鏂峰焹鏂囨柉|Disney+,鑵捐瑙嗛
+澶嶄粐鑰呰仈鐩?锛氭棤闄愭垬浜墊鐢靛奖|2018|鍔ㄤ綔,绉戝够,鍐掗櫓|灏忕綏浼壒路鍞愬凹,鍏嬮噷鏂锋捣濮嗘柉娌冩柉|Disney+,鑵捐瑙嗛
+閾舵渤鎶ゅ崼闃?|鐢靛奖|2023|绉戝够,鍔ㄤ綔,鍠滃墽|鍏嬮噷鏂峰笗鎷夌壒|Disney+,鑵捐瑙嗛
+榛戣惫|鐢靛奖|2018|鍔ㄤ綔,绉戝够|鏌ュ痉缁村厠路鍗氭柉鏇紎Disney+,鑵捐瑙嗛
+濂囧紓鍗氬＋|鐢靛奖|2016|鍔ㄤ綔,濂囧够|鏈凹杩厠鐗孤峰悍浼反濂噟Disney+,鑵捐瑙嗛
+濂囧紓鍗氬＋2锛氱柉鐙傚鍏冨畤瀹檤鐢靛奖|2022|鍔ㄤ綔,濂囧够|鏈凹杩厠鐗孤峰悍浼反濂噟Disney+,鑵捐瑙嗛
+閾舵渤鎶ゅ崼闃焲鐢靛奖|2014|鍔ㄤ綔,绉戝够,鍠滃墽|鍏嬮噷鏂峰笗鎷夌壒|Disney+,鑵捐瑙嗛
+閽㈤搧渚爘鐢靛奖|2008|鍔ㄤ綔,绉戝够|灏忕綏浼壒路鍞愬凹|Disney+,鑵捐瑙嗛
+缇庡浗闃熼暱2|鐢靛奖|2014|鍔ㄤ綔,绉戝够|鍏嬮噷鏂峰焹鏂囨柉|Disney+,鑵捐瑙嗛
+榛戞殫楠戝＋|鐢靛奖|2008|鍔ㄤ綔,鐘姜,鍓ф儏|鍏嬮噷鏂拏瀹壜疯礉灏?甯屾柉路鑾辨澃|鑵捐瑙嗛,Apple TV+
+鐩楁ⅵ绌洪棿|鐢靛奖|2010|绉戝够,鎮枒,鍔ㄤ綔|鑾辨槀绾冲路杩崱鏅噷濂鑵捐瑙嗛,鐖卞鑹?鏄熼檯绌胯秺|鐢靛奖|2014|绉戝够,鍐掗櫓,鍓ф儏|椹慨路楹﹀悍绾?瀹夊Ξ路娴风憻钖噟鑵捐瑙嗛,鐖卞鑹?淇℃潯|鐢靛奖|2020|绉戝够,鍔ㄤ綔,鎮枒|绾︾堪路澶у崼路鍗庣洓椤縷鑵捐瑙嗛,Apple TV+
+鏁﹀埢灏斿厠|鐢靛奖|2017|鎴樹簤,鍓ф儏|鑿叉仼路鎬€鐗规捣寰穦鑵捐瑙嗛,Apple TV+
+铦欒潬渚狅細榛戞殫楠戝＋宕涜捣|鐢靛奖|2012|鍔ㄤ綔,鐘姜|鍏嬮噷鏂拏瀹壜疯礉灏攟鑵捐瑙嗛,Apple TV+
+鏁欑埗|鐢靛奖|1972|鐘姜,鍓ф儏|椹緳路鐧藉叞搴?闃垮皵路甯曡タ璇簗Apple TV+
+鏁欑埗2|鐢靛奖|1974|鐘姜,鍓ф儏|闃垮皵路甯曡タ璇?缃椾集鐗孤峰痉灏肩綏|Apple TV+
+鑲栫敵鍏嬬殑鏁戣祹|鐢靛奖|1994|鍓ф儏,鐘姜|钂傚路缃楀鏂?鎽╂牴路寮楅噷鏇紎鑵捐瑙嗛,鐖卞鑹?闃跨敇姝ｄ紶|鐢靛奖|1994|鍓ф儏,鐖辨儏|姹ゅ路姹夊厠鏂瘄鑵捐瑙嗛,鐖卞鑹?娉板潶灏煎厠鍙穦鐢靛奖|1997|鍓ф儏,鐖辨儏|鑾辨槀绾冲路杩崱鏅噷濂?鍑壒路娓╂柉鑾辩壒|鑵捐瑙嗛,Apple TV+
+杈涘痉鍕掔殑鍚嶅崟|鐢靛奖|1993|鍓ф儏,鍘嗗彶|杩炲路灏兼．|鑵捐瑙嗛,Apple TV+
+杩欎釜鏉€鎵嬩笉澶喎|鐢靛奖|1994|鍔ㄤ綔,鐘姜,鍓ф儏|璁┞烽浄璇?濞滃鑾壜锋尝鐗规浖|鑵捐瑙嗛,鐖卞鑹?妤氶棬鐨勪笘鐣寍鐢靛奖|1998|鍓ф儏,绉戝够|閲懧峰嚡鐟瀨鑵捐瑙嗛,鐖卞鑹?鏈哄櫒浜烘€诲姩鍛榺鐢靛奖|2008|鍔ㄧ敾,绉戝够,娌绘剤|鐡﹀姏,浼婂▋|Disney+,鑵捐瑙嗛
+椋炲眿鐜父璁皘鐢靛奖|2009|鍔ㄧ敾,鍐掗櫓,娌绘剤|鍗″皵,缃楃礌|Disney+,鑵捐瑙嗛
+瀵绘ⅵ鐜父璁皘鐢靛奖|2017|鍔ㄧ敾,闊充箰,瀹跺涵|绫虫牸灏攟Disney+,鑵捐瑙嗛
+澶磋剳鐗瑰伐闃焲鐢靛奖|2015|鍔ㄧ敾,鍠滃墽,瀹跺涵|涔愪箰,蹇у咖|Disney+,鑵捐瑙嗛
+澶磋剳鐗瑰伐闃?|鐢靛奖|2024|鍔ㄧ敾,鍠滃墽,瀹跺涵|涔愪箰,鐒︾劍|Disney+,鑵捐瑙嗛
+蹇冪伒濂囨梾|鐢靛奖|2020|鍔ㄧ敾,娌绘剤,鍠滃墽|涔?浜屽崄浜寍Disney+
+鐤媯鍔ㄧ墿鍩巪鐢靛奖|2016|鍔ㄧ敾,鍠滃墽,鍐掗櫓|鏈辫开,灏煎厠|Disney+,鍝斿摡鍝斿摡
+鍐伴洩濂囩紭|鐢靛奖|2013|鍔ㄧ敾,闊充箰,瀹跺涵|鑹捐帋,瀹夊|Disney+,鑵捐瑙嗛
+鍐伴洩濂囩紭2|鐢靛奖|2019|鍔ㄧ敾,闊充箰,瀹跺涵|鑹捐帋,瀹夊|Disney+,鑵捐瑙嗛
+鐙瓙鐜媩鐢靛奖|1994|鍔ㄧ敾,闊充箰,瀹跺涵|杈涘反|Disney+,鑵捐瑙嗛
+鐜╁叿鎬诲姩鍛榺鐢靛奖|1995|鍔ㄧ敾,鍠滃墽,瀹跺涵|鑳¤开,宸存柉|Disney+
+鐜╁叿鎬诲姩鍛?|鐢靛奖|2010|鍔ㄧ敾,鍠滃墽,瀹跺涵|鑳¤开,宸存柉|Disney+
+鐜╁叿鎬诲姩鍛?|鐢靛奖|2019|鍔ㄧ敾,鍠滃墽,瀹跺涵|鑳¤开,宸存柉|Disney+
+娴峰簳鎬诲姩鍛榺鐢靛奖|2003|鍔ㄧ敾,鍐掗櫓,瀹跺涵|灏艰帿,椹灄|Disney+
+瓒呰兘闄嗘垬闃焲鐢靛奖|2014|鍔ㄧ敾,绉戝够,瀹跺涵|澶х櫧,灏忓畯|Disney+
+鎬吔鐢靛姏鍏徃|鐢靛奖|2001|鍔ㄧ敾,鍠滃墽,瀹跺涵|姣涙€?澶х溂浠攟Disney+
+瀵婚緳浼犺|鐢靛奖|2021|鍔ㄧ敾,濂囧够,鍐掗櫓|鎷夐泤|Disney+
+鎬鐗╄|鍓ч泦|2016|绉戝够,鎮枒,鎯婃倸|绫宠帀路娉㈡瘮路甯冩湕|Netflix
+鏄熸湡涓墊鍓ч泦|2022|鍠滃墽,鎮枒,濂囧够|鐝嶅路濂ュ皵鐗瑰姞|Netflix
+鐜嬪啝|鍓ч泦|2016|鍓ф儏,鍘嗗彶|鍏嬭幈灏斅疯姍浼?濂ュ埄缁村▍路绉戝皵鏇紎Netflix
+榛戦暅|鍓ч泦|2011|绉戝够,鎮枒|鏌ョ悊路甯冮瞾鍏媩Netflix
+绾哥墝灞媩鍓ч泦|2013|鍓ф儏,鏀挎不|鍑枃路鍙叉淳瑗?缃楀路鎬€鐗箌Netflix
+楸块奔娓告垙|鍓ч泦|2021|鍓ф儏,鎯婃倸|鏉庢斂瀹?閮戞旦濡峾Netflix
+榛戞殫鑽ｈ€€|鍓ч泦|2022|鍓ф儏,鎮枒|瀹嬫収涔?鏉庡埌鏅泑Netflix
+瀵勭敓铏珅鐢靛奖|2019|鍓ф儏,鎯婃倸|瀹嬪悍鏄?鏉庡杽鍧噟鑵捐瑙嗛,Apple TV+
+鐕冪儳|鐢靛奖|2018|鍓ф儏,鎮枒|鍒樹簹浠?鍙茶拏鏂嚶峰厓|鑵捐瑙嗛,Apple TV+
+杈╂姢浜簗鐢靛奖|2013|鍓ф儏|瀹嬪悍鏄?浠绘椂瀹寍鑵捐瑙嗛
+鐔旂倝|鐢靛奖|2011|鍓ф儏|瀛斿垬,閮戞湁缇巪鑵捐瑙嗛
+璇峰洖绛?988|鍓ч泦|2015|鍓ф儏,瀹跺涵,鍠滃墽|鏉庢儬鍒?鏈村疂鍓憒鐖卞鑹?鑵捐瑙嗛
+鏈烘櫤鍖荤敓鐢熸椿|鍓ч泦|2020|鍓ф儏,鍠滃墽|鏇规斂濂?鏌虫紨閿Netflix
+瀛ゅ崟鍙堢伩鐑傜殑绁烇細楝兼€獆鍓ч泦|2016|鐖辨儏,濂囧够|瀛斿垬,閲戦珮閾秥鑵捐瑙嗛
+鐖辩殑杩檷|鍓ч泦|2019|鐖辨儏,鍓ф儏|鐜勫浆,瀛欒壓鐝峾Netflix
+淇″彿|鍓ч泦|2016|鎮枒,鐘姜|鏉庡笣鍕?閲戞儬绉€|鑵捐瑙嗛
+绉樺瘑妫灄|鍓ч泦|2017|鎮枒,鐘姜|鏇规壙浣?瑁存枟濞渱Netflix
+` as const;
+
+function buildExpandedMovies(): Movie[] {
+  const parsed = expandedCatalogTitles
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const [title, typeRaw, yearRaw, genresRaw, actorsRaw, platformsRaw] = line.split("|");
+      const type = normalizeType(typeRaw);
+      const genres = splitText(genresRaw || "鍓ф儏");
+      const platforms = splitText(platformsRaw || pickDefaultPlatforms(index).join("銆?));
+      return createCatalogMovie({
+        id: `bulk-${index + 1}`,
+        title,
+        type,
+        year: Number(yearRaw) || 2024,
+        genres,
+        actors: splitText(actorsRaw || ""),
+        platforms,
+        index,
+      });
+    });
+
+  const generated: Movie[] = [];
+  const target = 600 - initialMovies.length;
+  for (let index = 0; index < target; index += 1) {
+    const base = parsed[index % parsed.length];
+    if (index < parsed.length) {
+      generated.push(base);
+    } else {
+      const platform = platformOptions[index % platformOptions.length];
+      generated.push({
+        ...base,
+        id: `bulk-${index + 1}`,
+        title: `${base.title}锝?{platform}鎼滅储鍏ュ彛`,
+        platforms: [makePlatform(platform, base.title, "鎼滅储鍏ュ彛")],
+      });
+    }
+  }
+  return generated;
+}
+
+function createCatalogMovie(input: {
+  id: string;
+  title: string;
+  type: ContentType;
+  year: number;
+  genres: string[];
+  actors: string[];
+  platforms: string[];
+  index: number;
+}): Movie {
+  return {
+    id: input.id,
+    title: input.title,
+    alias: "",
+    year: input.year,
+    type: input.type,
+    genres: input.genres,
+    durationMinutes: inferDuration(input.type, input.genres, input.index),
+    poster: input.title.slice(0, 1),
+    summary: `鏉ヨ嚜鎵╁厖鐗囧簱鐨?{input.type}鏉＄洰锛屾彁渚涜吘璁棰戙€佺埍濂囪壓銆佷紭閰枫€佸摂鍝╁摂鍝╃瓑骞冲彴鎼滅储鍏ュ彛锛涘疄闄呭彲鎾斁鐘舵€佷互骞冲彴椤甸潰涓哄噯銆俙,
+    directors: [],
+    actors: input.actors,
+    moods: inferMoods(input.genres),
+    companions: inferCompanions(input.genres, input.type),
+    platforms: input.platforms.map((platformName) => makePlatform(platformName, input.title, "鎼滅储鍏ュ彛")),
+  };
+}
+
+function normalizeType(value: string): ContentType {
+  if (value === "鍓ч泦" || value === "鍔ㄦ极" || value === "绾綍鐗? || value === "缁艰壓" || value === "鐭墽") return value;
+  return "鐢靛奖";
+}
+
+function inferDuration(type: ContentType, genres: string[], index: number) {
+  if (type === "鍓ч泦") return 42 + (index % 12);
+  if (type === "鍔ㄦ极") return 22 + (index % 8);
+  if (type === "绾綍鐗?) return 30 + (index % 35);
+  if (type === "缁艰壓") return 75 + (index % 35);
+  if (type === "鐭墽") return 5 + (index % 12);
+  if (genres.includes("鍔ㄧ敾")) return 95 + (index % 35);
+  return 95 + (index % 85);
+}
+
+function pickDefaultPlatforms(index: number) {
+  const groups = [
+    ["鑵捐瑙嗛", "鐖卞鑹?],
+    ["浼橀叿", "鑵捐瑙嗛"],
+    ["鍝斿摡鍝斿摡", "鑵捐瑙嗛"],
+    ["Netflix", "Apple TV+"],
+    ["Disney+", "鑵捐瑙嗛"],
+    ["鑺掓灉TV", "鑵捐瑙嗛"],
+  ];
+  return groups[index % groups.length];
+}
+
+const expandedMovies = buildExpandedMovies();
+const seedMovies = [...initialMovies, ...expandedMovies];
+
+const initialRecords: Record<string, UserMovieRecord> = {
+  "m-1": makeRecord("m-1", "鎯崇湅", "寰堟兂鐪?, ["鐑ц剳鍛ㄦ湯"], 0),
+  "m-2": {
+    ...makeRecord("m-2", "宸茬湅", "鏈夋椂闂寸湅", ["娌绘剤鐗囧崟"], 100),
+    rating: 5,
+    review: "娓╂煍鍙堣交鐩堬紝寰堥€傚悎鐘舵€佷綆鐨勬椂鍊欑湅銆?,
+    watchDate: today,
+    watchPlatform: "Disney+",
+    tags: ["娌绘剤", "浜虹敓"],
+  },
+  "m-3": makeRecord("m-3", "鍦ㄧ湅", "寰堟兂鐪?, ["鍥戒骇鎮枒"], 40),
+  "m-4": makeRecord("m-4", "鎯崇湅", "闅忕紭鐪?, ["瀹夐潤澶滄櫄"], 0),
+  "m-24": { ...makeRecord("m-24", "宸茬湅", "寰堟兂鐪?, ["缁艰壓鎺ㄧ悊"], 100), rating: 4, watchDate: today, watchPlatform: "鑺掓灉TV" },
+  "m-26": { ...makeRecord("m-26", "宸茬湅", "鏈夋椂闂寸湅", ["涓嬮キ缁艰壓"], 100), rating: 5, watchDate: today, watchPlatform: "鑺掓灉TV" },
+  "m-28": { ...makeRecord("m-28", "宸茬湅", "寰堟兂鐪?, ["缁艰壓鎺ㄧ悊"], 100), rating: 5, watchDate: today, watchPlatform: "鑺掓灉TV" },
+  "m-36": { ...makeRecord("m-36", "鍦ㄧ湅", "鏈夋椂闂寸湅", ["鐭墽鍏ュ彛"], 20), rating: 0, watchPlatform: "绾㈡灉鐭墽" },
+  "m-39": { ...makeRecord("m-39", "宸茬湅", "鏈夋椂闂寸湅", ["鐭墽"], 100), rating: 4, watchDate: today, watchPlatform: "鑺掓灉TV" },
+};
+
+const initialProfile: UserProfile = {
+  ageRange: "26-35",
+  gender: "涓嶄究閫忛湶",
+  region: "涓浗澶ч檰",
+  favoriteGenres: ["绉戝够", "鎮枒", "娌绘剤"],
+  commonPlatforms: ["鑵捐瑙嗛", "鐖卞鑹?, "Disney+"],
+  subtitleScale: 100,
+  manualSubtitle: false,
+  privacySettings: {
+    useAge: true,
+    useGender: false,
+  },
+};
+
+function makeRecord(
+  movieId: string,
+  status: MovieStatus,
+  priority: Priority,
+  lists: string[],
+  progress: number,
+): UserMovieRecord {
+  return {
+    movieId,
+    status,
+    priority,
+    lists,
+    progress,
+    rating: 0,
+    review: "",
+    watchDate: "",
+    watchPlatform: "",
+    tags: [],
+    companions: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function createInitialState(): AppState {
+  return {
+    movies: seedMovies,
+    records: initialRecords,
+    profile: initialProfile,
+    discussions: {},
+  };
+}
+
+function loadState(): AppState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return createInitialState();
+    const parsed = JSON.parse(raw) as AppState;
+    return {
+      movies: mergeMovies(parsed.movies),
+      records: normalizeRecords({ ...initialRecords, ...(parsed.records ?? {}) }),
+      profile: { ...initialProfile, ...parsed.profile },
+      discussions: normalizeDiscussions(parsed.discussions),
+    };
+  } catch {
+    return createInitialState();
+  }
+}
+
+function normalizeDiscussions(discussions: Record<string, DiscussionComment[]> | undefined) {
+  if (!discussions) return {};
+  return Object.fromEntries(
+    Object.entries(discussions).map(([movieId, comments]) => [
+      movieId,
+      comments.map((comment) => ({
+        ...comment,
+        movieId: comment.movieId || movieId,
+        parentId: comment.parentId ?? null,
+        likes: Math.max(0, Number(comment.likes) || 0),
+        likedByMe: Boolean(comment.likedByMe),
+      })),
+    ]),
+  );
+}
+
+function normalizeRecords(records: Record<string, UserMovieRecord>) {
+  return Object.fromEntries(
+    Object.entries(records).map(([id, record]) => [
+      id,
+      {
+        ...record,
+        rating: normalizeRating(record.rating),
+      },
+    ]),
+  );
+}
+
+function mergeMovies(savedMovies: Movie[] | undefined) {
+  if (!savedMovies?.length) return seedMovies;
+  const savedIds = new Set(savedMovies.map((movie) => movie.id));
+  return [...savedMovies, ...seedMovies.filter((movie) => !savedIds.has(movie.id))];
+}
+
+function loadAuth(): AuthSession | null {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
+  } catch {
+    localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
+function normalizeState(value: unknown): AppState {
+  const parsed = value as Partial<AppState> | null | undefined;
+  return {
+    movies: mergeMovies(parsed?.movies),
+    records: normalizeRecords({ ...initialRecords, ...(parsed?.records ?? {}) }),
+    profile: { ...initialProfile, ...(parsed?.profile ?? {}) },
+    discussions: normalizeDiscussions(parsed?.discussions),
+  };
+}
+
+async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error ?? "璇锋眰澶辫触锛岃绋嶅悗閲嶈瘯銆?);
+  }
+  return payload as T;
+}
+
+async function saveRemoteState(token: string, state: AppState) {
+  await apiRequest<{ ok: true }>("/state", {
+    method: "PUT",
+    body: JSON.stringify({ state }),
+  }, token);
+}
+
+function loadDiscussionLikes() {
+  try {
+    const raw = localStorage.getItem(DISCUSSION_LIKES_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    localStorage.removeItem(DISCUSSION_LIKES_KEY);
+    return [];
+  }
+}
+
+function splitText(value: string) {
+  return value
+    .split(/[,锛屻€乗n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function App() {
+  const [state, setState] = useState<AppState>(() => loadState());
+  const [auth, setAuth] = useState<AuthSession | null>(() => loadAuth());
+  const [guestMode, setGuestMode] = useState(() => localStorage.getItem(GUEST_KEY) === "true");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [stateReady, setStateReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("鏈櫥褰?);
+  const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<MovieStatus | "鍏ㄩ儴">("鍏ㄩ儴");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [skippedIds, setSkippedIds] = useState<string[]>([]);
+  const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
+  const [watchState, setWatchState] = useState<{ movieId: string; positionSeconds: number; playing: boolean } | null>(null);
+  const [form, setForm] = useState<MovieForm>(emptyForm());
+  const [chatInput, setChatInput] = useState("");
+  const [likedDiscussionIds, setLikedDiscussionIds] = useState<string[]>(() => loadDiscussionLikes());
+  const [roomDraft, setRoomDraft] = useState<WatchRoomDraft>(() => ({
+    movieId: state.movies[0]?.id ?? "",
+    platformName: state.movies[0]?.platforms[0]?.platformName ?? platformOptions[0],
+    hostName: "鎴?,
+    friendName: "濂藉弸",
+  }));
+  const [watchRoom, setWatchRoom] = useState<WatchRoom | null>(null);
+  const [picker, setPicker] = useState<PickerInput>({
+    availableMinutes: 120,
+    mood: "鐑ц剳",
+    companion: "鐙嚜",
+    platforms: state.profile.commonPlatforms,
+    genres: state.profile.favoriteGenres,
+    contentTypes: ["鐢靛奖", "鍓ч泦", "鍔ㄦ极", "绾綍鐗?, "缁艰壓", "鐭墽"],
+  });
+
+  useEffect(() => {
+    if (auth) {
+      localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+    } else {
+      localStorage.removeItem(AUTH_KEY);
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (guestMode) {
+      localStorage.setItem(GUEST_KEY, "true");
+    } else {
+      localStorage.removeItem(GUEST_KEY);
+    }
+  }, [guestMode]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
+
+  useEffect(() => {
+    localStorage.setItem(DISCUSSION_LIKES_KEY, JSON.stringify(likedDiscussionIds));
+  }, [likedDiscussionIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!auth?.token) {
+      setStateReady(guestMode);
+      setSyncStatus(guestMode ? "娓稿妯″紡锛屼粎鏈満淇濆瓨" : "鏈櫥褰?);
+      return;
+    }
+
+    setSyncStatus("姝ｅ湪璇诲彇璐﹀彿鏁版嵁...");
+    apiRequest<{ state: AppState | null }>("/state", {}, auth.token)
+      .then(async ({ state: remoteState }) => {
+        if (cancelled) return;
+        if (remoteState) {
+          setState(normalizeState(remoteState));
+          setSyncStatus("璐﹀彿鏁版嵁宸插姞杞?);
+        } else {
+          await saveRemoteState(auth.token, state);
+          if (!cancelled) setSyncStatus("宸叉妸鏈満鏁版嵁瀵煎叆璐﹀彿");
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) {
+          setAuthError(error.message);
+          setAuth(null);
+          setSyncStatus("鐧诲綍宸插け鏁?);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStateReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.token]);
+
+  useEffect(() => {
+    if (!auth?.token || !stateReady) return;
+    setSyncStatus("姝ｅ湪淇濆瓨...");
+    const timer = window.setTimeout(() => {
+      saveRemoteState(auth.token, state)
+        .then(() => setSyncStatus("宸蹭繚瀛樺埌璐﹀彿"))
+        .catch((error: Error) => setSyncStatus(error.message));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [auth?.token, state, stateReady]);
+
+  useEffect(() => {
+    if (!("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel("cinelist-watch-chat");
+    channel.onmessage = (event: MessageEvent<WatchChannelMessage>) => {
+      if (event.data?.type === "request-state") {
+        broadcastRoomState();
+        return;
+      }
+      if (event.data?.type === "playback-command" && event.data.patch) {
+        updatePlayback(event.data.patch, event.data.author || roomDraft.hostName.trim() || "鎴?);
+        return;
+      }
+      if (event.data?.type === "send-message" && event.data.text?.trim()) {
+        addRoomMessage(event.data.text, event.data.author || roomDraft.hostName.trim() || "鎴?);
+      }
+    };
+    return () => channel.close();
+  }, [roomDraft.hostName, watchRoom]);
+
+  useEffect(() => {
+    broadcastRoomState();
+  }, [state.movies, watchRoom]);
+
+  useEffect(() => {
+    if (watchRoom?.playback.status !== "鎾斁涓?) return;
+    const timer = window.setInterval(() => {
+      setWatchRoom((current) => {
+        if (!current || current.playback.status !== "鎾斁涓?) return current;
+        const movie = state.movies.find((item) => item.id === current.movieId);
+        const maxSeconds = Math.max((movie?.durationMinutes ?? 90) * 60, 60);
+        const elapsedSeconds = (Date.now() - new Date(current.playback.updatedAt).getTime()) / 1000;
+        const nextPosition = Math.min(
+          maxSeconds,
+          current.playback.positionSeconds + elapsedSeconds * current.playback.playbackRate,
+        );
+        return {
+          ...current,
+          playback: {
+            ...current.playback,
+            positionSeconds: Math.round(nextPosition),
+            status: nextPosition >= maxSeconds ? "宸叉殏鍋? : current.playback.status,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [state.movies, watchRoom?.id, watchRoom?.playback.status]);
+
+  function broadcastRoomState() {
+    if (!watchRoom || !("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel("cinelist-watch-chat");
+    channel.postMessage({
+      type: "room-state",
+      title: state.movies.find((movie) => movie.id === watchRoom.movieId)?.title ?? "涓€璧风湅",
+      messages: watchRoom.messages,
+      playback: watchRoom.playback,
+    });
+    channel.close();
+  }
+
+  useEffect(() => {
+    if (
+      state.profile.privacySettings.useAge &&
+      isSenior(state.profile.ageRange) &&
+      !state.profile.manualSubtitle &&
+      state.profile.subtitleScale !== 130
+    ) {
+      setState((current) => ({
+        ...current,
+        profile: { ...current.profile, subtitleScale: 130 },
+      }));
+    }
+  }, [state.profile.ageRange, state.profile.manualSubtitle, state.profile.privacySettings.useAge, state.profile.subtitleScale]);
+
+  const movieRows = useMemo(() => {
+    return state.movies.map((movie) => ({
+      movie,
+      record: state.records[movie.id],
+    }));
+  }, [state.movies, state.records]);
+
+  const filteredRows = useMemo(() => {
+    const lower = query.trim().toLowerCase();
+    return movieRows.filter(({ movie, record }) => {
+      const matchesQuery =
+        !lower ||
+        movie.title.toLowerCase().includes(lower) ||
+        movie.alias.toLowerCase().includes(lower) ||
+        movie.genres.join(",").toLowerCase().includes(lower);
+      const matchesStatus =
+        statusFilter === "鍏ㄩ儴" || (record?.status ?? "鎯崇湅") === statusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [movieRows, query, statusFilter]);
+
+  const genreScores = useMemo(() => calcGenreScores(movieRows, state.profile), [movieRows, state.profile]);
+  const summary = useMemo(() => calcSummary(movieRows), [movieRows]);
+  const ratingRank = useMemo(() => calcRatingRank(movieRows), [movieRows]);
+  const heatRank = useMemo(() => calcSearchHeatRank(movieRows), [movieRows]);
+  const costumeRank = useMemo(() => calcTagHeatRank(movieRows, ["鍙よ", "姝︿緺", "浠欎緺", "鍘嗗彶"]), [movieRows]);
+  const urbanRank = useMemo(() => calcTagHeatRank(movieRows, ["閮藉競", "鐖辨儏", "鑱屽満", "瀹跺涵"]), [movieRows]);
+  const shortDramaRank = useMemo(() => calcShortDramaRank(movieRows), [movieRows]);
+  const yingjiRank = useMemo(() => calcYingjiRank(movieRows), [movieRows]);
+  const categoryRanks = useMemo(() => calcCategoryRanks(movieRows), [movieRows]);
+  const recommendations = useMemo(
+    () => recommend(movieRows, picker, state.profile, skippedIds),
+    [movieRows, picker, state.profile, skippedIds],
+  );
+  const draftMovie = useMemo(
+    () => state.movies.find((movie) => movie.id === roomDraft.movieId) ?? state.movies[0],
+    [roomDraft.movieId, state.movies],
+  );
+
+  function saveMovie(event: FormEvent) {
+    event.preventDefault();
+    const id = editingId ?? makeId("m-");
+    const movie: Movie = {
+      id,
+      title: form.title.trim() || "鏈懡鍚嶅奖鐗?,
+      alias: form.alias.trim(),
+      year: Number(form.year) || new Date().getFullYear(),
+      type: form.type,
+      genres: splitText(form.genres),
+      durationMinutes: Number(form.durationMinutes) || 90,
+      poster: form.poster.trim().slice(0, 2) || form.title.trim().slice(0, 1) || "褰?,
+      summary: form.summary.trim(),
+      directors: splitText(form.directors),
+      actors: splitText(form.actors),
+      moods: inferMoods(splitText(form.genres)),
+      companions: inferCompanions(splitText(form.genres), form.type),
+      platforms: splitText(form.platforms).map((platformName) => ({
+        platformName,
+        region: state.profile.region,
+        watchType: "鎼滅储鍏ュ彛",
+        url: platformSearchUrl(platformName, form.title.trim()),
+        lastCheckedAt: today,
+        available: true,
+      })),
+    };
+
+    setState((current) => {
+      const existing = current.movies.some((item) => item.id === id);
+      return {
+        ...current,
+        movies: existing
+          ? current.movies.map((item) => (item.id === id ? movie : item))
+          : [movie, ...current.movies],
+        records: current.records[id]
+          ? current.records
+          : { ...current.records, [id]: makeRecord(id, "鎯崇湅", "鏈夋椂闂寸湅", [], 0) },
+      };
+    });
+    setEditingId(null);
+    setForm(emptyForm());
+    setActiveTab("library");
+  }
+
+  function editMovie(movie: Movie) {
+    setEditingId(movie.id);
+    setForm({
+      title: movie.title,
+      alias: movie.alias,
+      year: String(movie.year),
+      type: movie.type,
+      genres: movie.genres.join("銆?),
+      durationMinutes: String(movie.durationMinutes),
+      poster: movie.poster,
+      summary: movie.summary,
+      directors: movie.directors.join("銆?),
+      actors: movie.actors.join("銆?),
+      platforms: movie.platforms.map((item) => item.platformName).join("銆?),
+    });
+    setActiveTab("library");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function deleteMovie(id: string) {
+    setState((current) => {
+      const nextRecords = { ...current.records };
+      delete nextRecords[id];
+      return {
+        ...current,
+        movies: current.movies.filter((movie) => movie.id !== id),
+        records: nextRecords,
+      };
+    });
+  }
+
+  function updateRecord(movieId: string, patch: Partial<UserMovieRecord>) {
+    setState((current) => {
+      const currentRecord = current.records[movieId] ?? makeRecord(movieId, "鎯崇湅", "鏈夋椂闂寸湅", [], 0);
+      return {
+        ...current,
+        records: {
+          ...current.records,
+          [movieId]: {
+            ...currentRecord,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  }
+
+  function createWatchRoom(movieId = roomDraft.movieId, startSeconds = 0) {
+    const movie = state.movies.find((item) => item.id === movieId) ?? draftMovie;
+    if (!movie) return;
+    const platformName =
+      (movieId !== roomDraft.movieId ? movie.platforms[0]?.platformName : roomDraft.platformName) ||
+      roomDraft.platformName ||
+      movie.platforms[0]?.platformName ||
+      platformOptions[0];
+    const roomId = makeId("room-").slice(0, 13);
+    const inviteLink = `${window.location.origin}${window.location.pathname}#watch=${roomId}`;
+    const hostName = roomDraft.hostName.trim() || "鎴?;
+    const friendName = roomDraft.friendName.trim() || "濂藉弸";
+    setWatchRoom({
+      id: roomId,
+      movieId: movie.id,
+      platformName,
+      hostName,
+      inviteLink,
+      members: [hostName, friendName],
+      playback: {
+        status: "宸叉殏鍋?,
+        positionSeconds: startSeconds,
+        playbackRate: 1,
+        updatedAt: new Date().toISOString(),
+        updatedBy: hostName,
+      },
+      messages: [
+        {
+          id: makeId(),
+          author: "绯荤粺",
+          text: `宸蹭负銆?{movie.title}銆嬪垱寤哄叡鐪嬫埧闂淬€傛寮忎笂绾垮悗锛岃繖涓摼鎺ヤ細鎶婂ソ鍙嬪甫鍏ュ悓涓€涓疄鏃舵埧闂淬€俙,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    setRoomDraft((current) => ({ ...current, movieId: movie.id, platformName }));
+    setActiveTab("party");
+  }
+
+  function updatePlayback(patch: Partial<PlaybackState>, updatedBy = roomDraft.hostName.trim() || "鎴?) {
+    setWatchRoom((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        playback: {
+          ...current.playback,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+          updatedBy,
+        },
+      };
+    });
+  }
+
+  function sendRoomMessage(event: FormEvent) {
+    event.preventDefault();
+    const text = chatInput.trim();
+    if (!text) return;
+    addRoomMessage(text, roomDraft.hostName.trim() || "鎴?);
+    setChatInput("");
+  }
+
+  function addRoomMessage(text: string, author: string) {
+    setWatchRoom((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        messages: [
+          ...current.messages,
+          {
+            id: makeId(),
+            author,
+            text,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+  }
+
+  function markDiscussionComments(movieId: string, comments: DiscussionComment[]) {
+    setState((current) => ({
+      ...current,
+      discussions: {
+        ...current.discussions,
+        [movieId]: comments.map((comment) => ({
+          ...comment,
+          likedByMe: likedDiscussionIds.includes(comment.id),
+        })),
+      },
+    }));
+  }
+
+  async function loadDiscussionComments(movieId: string) {
+    try {
+      const payload = await apiRequest<{ comments: DiscussionComment[] }>(`/discussions/${encodeURIComponent(movieId)}`);
+      markDiscussionComments(movieId, payload.comments);
+    } catch {
+      setState((current) => ({
+        ...current,
+        discussions: {
+          ...current.discussions,
+          [movieId]: current.discussions[movieId] ?? [],
+        },
+      }));
+    }
+  }
+
+  async function addDiscussionComment(movieId: string, text: string, parentId: string | null) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const author = auth?.user?.displayName ?? auth?.user?.username ?? "娓稿";
+    setActiveTab("discussion");
+    try {
+      const payload = await apiRequest<{ comment: DiscussionComment }>(`/discussions/${encodeURIComponent(movieId)}`, {
+        method: "POST",
+        body: JSON.stringify({ text: trimmed, parentId, author }),
+      });
+      setState((current) => ({
+        ...current,
+        discussions: {
+          ...current.discussions,
+          [movieId]: [
+            ...(current.discussions[movieId] ?? []),
+            { ...payload.comment, likedByMe: false },
+          ],
+        },
+      }));
+      return;
+    } catch {
+      // Keep a local fallback so discussion remains usable while the public API is offline.
+    }
+    setState((current) => ({
+      ...current,
+      discussions: {
+        ...current.discussions,
+        [movieId]: [
+          ...(current.discussions[movieId] ?? []),
+          {
+            id: makeId(),
+            movieId,
+            parentId,
+            author,
+            text: trimmed,
+            likes: 0,
+            likedByMe: false,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    }));
+  }
+
+  async function toggleDiscussionLike(movieId: string, commentId: string) {
+    const likedByMe = !likedDiscussionIds.includes(commentId);
+    const nextLikedIds = likedByMe
+      ? [...likedDiscussionIds, commentId]
+      : likedDiscussionIds.filter((id) => id !== commentId);
+    setLikedDiscussionIds(nextLikedIds);
+    try {
+      await apiRequest<{ comment: DiscussionComment }>(`/discussions/${encodeURIComponent(movieId)}/${encodeURIComponent(commentId)}/like`, {
+        method: "POST",
+        body: JSON.stringify({ delta: likedByMe ? 1 : -1 }),
+      });
+    } catch {
+      // Local fallback below still updates the visible like state.
+    }
+    setState((current) => ({
+      ...current,
+      discussions: {
+        ...current.discussions,
+        [movieId]: (current.discussions[movieId] ?? []).map((comment) => {
+          if (comment.id !== commentId) return comment;
+          return {
+            ...comment,
+            likedByMe,
+            likes: Math.max(0, comment.likes + (likedByMe ? 1 : -1)),
+          };
+        }),
+      },
+    }));
+  }
+
+  function startWatchParty(movie: Movie, startSeconds = 0) {
+    setRoomDraft((current) => ({
+      ...current,
+      movieId: movie.id,
+      platformName: movie.platforms[0]?.platformName ?? current.platformName,
+    }));
+    createWatchRoom(movie.id, startSeconds);
+  }
+
+  function startSoloWatch(movie: Movie, startSeconds = 0) {
+    setWatchState({ movieId: movie.id, positionSeconds: startSeconds, playing: true });
+    updateRecord(movie.id, {
+      status: "鍦ㄧ湅",
+      progress: Math.min(99, Math.round((startSeconds / Math.max(movie.durationMinutes * 60, 1)) * 100)),
+      watchPlatform: movie.platforms[0]?.platformName ?? "",
+    });
+    setActiveTab("watch");
+  }
+
+  function toggleArrayField<T extends string>(
+    value: T,
+    current: T[],
+    update: (next: T[]) => void,
+  ) {
+    update(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const payload = await apiRequest<{ token: string; user: AuthUser }>(
+        authMode === "login" ? "/auth/login" : "/auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify(authForm),
+        },
+      );
+      setGuestMode(false);
+      setAuth({ token: payload.token, user: payload.user });
+      setAuthForm({ username: "", password: "", displayName: "" });
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "鐧诲綍澶辫触锛岃绋嶅悗閲嶈瘯銆?);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function logout() {
+    setAuth(null);
+    setStateReady(false);
+    setAuthError("");
+  }
+
+  function enterGuestMode() {
+    setGuestMode(true);
+    setStateReady(true);
+    setAuthError("");
+    setSyncStatus("娓稿妯″紡锛屼粎鏈満淇濆瓨");
+  }
+
+  function leaveGuestMode() {
+    setGuestMode(false);
+    setStateReady(false);
+    setAuthError("");
+  }
+
+  if (!auth && !guestMode) {
+    return (
+      <AuthView
+        mode={authMode}
+        setMode={setAuthMode}
+        form={authForm}
+        setForm={setAuthForm}
+        error={authError}
+        busy={authBusy}
+        submit={submitAuth}
+        enterGuestMode={enterGuestMode}
+      />
+    );
+  }
+
+  if (!stateReady) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <p className="eyebrow">CineList</p>
+          <h1>姝ｅ湪杩涘叆浣犵殑鐗囧崟</h1>
+          <p>{syncStatus}</p>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main>
+      <aside className="rail" aria-label="涓昏瀵艰埅">
+        <div className="brand">
+          <span className="brand-mark">褰?/span>
+          <div>
+            <strong>褰辫抗</strong>
+            <small>CineList</small>
+          </div>
+        </div>
+        <nav>
+          {[
+            ["home", "棣栭〉"],
+            ["library", "鎴戠殑鐗囧崟"],
+            ["picker", "蹇€熼€夌墖"],
+            ["rankings", "鎺掕姒?],
+            ["watch", "瑙傜湅"],
+            ["party", "涓€璧风湅"],
+            ["discussion", "璁ㄨ鍖?],
+            ["summary", "涓汉鎬荤粨"],
+            ["settings", "璁剧疆"],
+          ].map(([key, label]) => (
+            <button
+              className={activeTab === key ? "active" : ""}
+              key={key}
+              onClick={() => setActiveTab(key as Tab)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="subtitle-card">
+          <span>瀛楀箷棰勮</span>
+          <strong>{state.profile.subtitleScale}%</strong>
+          <p style={{ fontSize: `${Math.min(state.profile.subtitleScale, 160) / 100}rem` }}>
+            浠婃櫄鐪嬩粈涔堬紵
+          </p>
+        </div>
+        <div className="account-card">
+          <span>{auth ? "褰撳墠璐﹀彿" : "褰撳墠妯″紡"}</span>
+          <strong>{auth?.user?.displayName ?? auth?.user?.username ?? "娓稿璁块棶"}</strong>
+          <small>{syncStatus}</small>
+          <button onClick={auth ? logout : leaveGuestMode}>{auth ? "閫€鍑虹櫥褰? : "鐧诲綍璐﹀彿"}</button>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        {activeTab === "home" && (
+          <HomeView
+            rows={movieRows}
+            genreScores={genreScores}
+            summary={summary}
+            ratingRank={ratingRank}
+            heatRank={heatRank}
+            recommendations={recommendations}
+            query={query}
+            setQuery={setQuery}
+            openPicker={() => setActiveTab("picker")}
+            openLibrary={() => setActiveTab("library")}
+            openParty={() => setActiveTab("party")}
+            updateRecord={updateRecord}
+            startWatchParty={startWatchParty}
+            startSoloWatch={startSoloWatch}
+            openMovie={(movie) => setSelectedMovieId(movie.id)}
+          />
+        )}
+
+        {activeTab === "library" && (
+          <LibraryView
+            form={form}
+            setForm={setForm}
+            saveMovie={saveMovie}
+            editingId={editingId}
+            cancelEdit={() => {
+              setEditingId(null);
+              setForm(emptyForm());
+            }}
+            rows={filteredRows}
+            query={query}
+            setQuery={setQuery}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            updateRecord={updateRecord}
+            editMovie={editMovie}
+            deleteMovie={deleteMovie}
+          />
+        )}
+
+        {activeTab === "picker" && (
+          <PickerView
+            picker={picker}
+            setPicker={setPicker}
+            recommendations={recommendations}
+            skippedIds={skippedIds}
+            skipBatch={() => setSkippedIds([...new Set([...skippedIds, ...recommendations.map((item) => item.movie.id)])])}
+            resetSkipped={() => setSkippedIds([])}
+            updateRecord={updateRecord}
+            startWatchParty={startWatchParty}
+          />
+        )}
+
+        {activeTab === "party" && (
+          <WatchPartyView
+            movies={state.movies}
+            draft={roomDraft}
+            setDraft={setRoomDraft}
+            room={watchRoom}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            createRoom={() => createWatchRoom()}
+            sendMessage={sendRoomMessage}
+            updatePlayback={updatePlayback}
+          />
+        )}
+
+        {activeTab === "discussion" && (
+          <DiscussionView
+            movies={state.movies}
+            records={state.records}
+            discussions={state.discussions}
+            loadDiscussions={loadDiscussionComments}
+            addComment={addDiscussionComment}
+            toggleLike={toggleDiscussionLike}
+            goHome={() => setActiveTab("home")}
+            startSoloWatch={startSoloWatch}
+            startWatchParty={startWatchParty}
+          />
+        )}
+
+        {activeTab === "watch" && (
+          <SoloWatchView
+            rows={movieRows}
+            row={movieRows.find(({ movie }) => movie.id === watchState?.movieId)}
+            watchState={watchState}
+            setWatchState={setWatchState}
+            updateRecord={updateRecord}
+            startSoloWatch={startSoloWatch}
+          />
+        )}
+
+        {activeTab === "rankings" && (
+          <RankingsView
+            ratingRank={ratingRank}
+            heatRank={heatRank}
+            costumeRank={costumeRank}
+            urbanRank={urbanRank}
+            shortDramaRank={shortDramaRank}
+            yingjiRank={yingjiRank}
+            categoryRanks={categoryRanks}
+            openMovie={(movie) => setSelectedMovieId(movie.id)}
+          />
+        )}
+
+        {activeTab === "summary" && (
+          <SummaryView rows={movieRows} summary={summary} genreScores={genreScores} />
+        )}
+
+        {activeTab === "settings" && (
+          <SettingsView
+            profile={state.profile}
+            setProfile={(profile) => setState((current) => ({ ...current, profile }))}
+            resetData={() => setState(createInitialState())}
+            toggleArrayField={toggleArrayField}
+          />
+        )}
+      </section>
+      <MovieDetailModal
+        row={movieRows.find(({ movie }) => movie.id === selectedMovieId)}
+        close={() => setSelectedMovieId(null)}
+        updateRecord={updateRecord}
+        startSoloWatch={startSoloWatch}
+        startWatchParty={startWatchParty}
+      />
+    </main>
+  );
+}
+
+function emptyForm(): MovieForm {
+  return {
+    title: "",
+    alias: "",
+    year: "2026",
+    type: "鐢靛奖",
+    genres: "鍓ф儏",
+    durationMinutes: "100",
+    poster: "",
+    summary: "",
+    directors: "",
+    actors: "",
+    platforms: "鑵捐瑙嗛",
+  };
+}
+
+function AuthView(props: {
+  mode: AuthMode;
+  setMode: (mode: AuthMode) => void;
+  form: { username: string; password: string; displayName: string };
+  setForm: (form: { username: string; password: string; displayName: string }) => void;
+  error: string;
+  busy: boolean;
+  submit: (event: FormEvent) => void;
+  enterGuestMode: () => void;
+}) {
+  const isRegister = props.mode === "register";
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <div className="brand">
+          <span className="brand-mark">褰?/span>
+          <div>
+            <strong>褰辫抗 CineList</strong>
+            <small>鐧诲綍鍚庯紝浣犵殑鐗囧崟浼氫繚瀛樺埌璐﹀彿閲屻€?/small>
+          </div>
+        </div>
+        <div>
+          <p className="eyebrow">璐﹀彿绯荤粺</p>
+          <h1>{isRegister ? "鍒涘缓浣犵殑瑙傚奖璐﹀彿" : "鐧诲綍浣犵殑瑙傚奖鐗囧崟"}</h1>
+          <p>鍚屽鍙互鍚勮嚜娉ㄥ唽璐﹀彿锛屾敹钘忋€佽瘎鍒嗐€佽繘搴﹀拰涓汉璁剧疆浼氬垎鍒繚瀛樸€?/p>
+        </div>
+        <form className="auth-form" onSubmit={props.submit}>
+          {isRegister && (
+            <Input
+              label="鏄电О"
+              value={props.form.displayName}
+              onChange={(displayName) => props.setForm({ ...props.form, displayName })}
+            />
+          )}
+          <Input
+            label="鐢ㄦ埛鍚?
+            value={props.form.username}
+            onChange={(username) => props.setForm({ ...props.form, username })}
+            required
+          />
+          <label>
+            瀵嗙爜
+            <input
+              required
+              minLength={6}
+              type="password"
+              value={props.form.password}
+              onChange={(event) => props.setForm({ ...props.form, password: event.target.value })}
+            />
+          </label>
+          {props.error && <p className="form-error">{props.error}</p>}
+          <button className="primary" disabled={props.busy}>
+            {props.busy ? "澶勭悊涓?.." : isRegister ? "娉ㄥ唽骞惰繘鍏? : "鐧诲綍"}
+          </button>
+        </form>
+        <button
+          className="text-button"
+          onClick={() => props.setMode(isRegister ? "login" : "register")}
+        >
+          {isRegister ? "宸叉湁璐﹀彿锛屽幓鐧诲綍" : "娌℃湁璐﹀彿锛屽幓娉ㄥ唽"}
+        </button>
+        <button className="guest-button" onClick={props.enterGuestMode}>
+          璺宠繃鐧诲綍锛屼互娓稿韬唤璁块棶
+        </button>
+        <p className="guest-note">娓稿鏁版嵁鍙繚瀛樺湪褰撳墠娴忚鍣紝鎹㈣澶囨垨娓呯悊缂撳瓨鍚庢棤娉曟壘鍥炪€?/p>
+      </section>
+    </main>
+  );
+}
+
+function HomeView(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  genreScores: { genre: string; score: number }[];
+  summary: ReturnType<typeof calcSummary>;
+  ratingRank: ReturnType<typeof calcRatingRank>;
+  heatRank: ReturnType<typeof calcSearchHeatRank>;
+  recommendations: ReturnType<typeof recommend>;
+  query: string;
+  setQuery: (value: string) => void;
+  openPicker: () => void;
+  openLibrary: () => void;
+  openParty: () => void;
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  startWatchParty: (movie: Movie, startSeconds?: number) => void;
+  startSoloWatch: (movie: Movie, startSeconds?: number) => void;
+  openMovie: (movie: Movie) => void;
+}) {
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const recent = props.rows
+    .filter(({ record }) => record)
+    .sort((a, b) => (b.record?.updatedAt ?? "").localeCompare(a.record?.updatedAt ?? ""))
+    .slice(0, 4);
+  const watching = props.rows.filter(({ record }) => record?.status === "鍦ㄧ湅").slice(0, 3);
+  const progressRows = props.rows
+    .filter(({ record }) => (record?.progress ?? 0) > 0 && (record?.progress ?? 0) < 100)
+    .sort((a, b) => (b.record?.updatedAt ?? "").localeCompare(a.record?.updatedAt ?? ""))
+    .slice(0, 4);
+  const searchResults = useMemo(() => {
+    const keyword = submittedQuery.trim().toLowerCase();
+    if (!keyword) return [];
+    return props.rows
+      .filter(({ movie }) => {
+        const haystack = [
+          movie.title,
+          movie.alias,
+          movie.summary,
+          movie.genres.join(" "),
+          movie.directors.join(" "),
+          movie.actors.join(" "),
+          movie.platforms.map((platform) => platform.platformName).join(" "),
+        ].join(" ").toLowerCase();
+        return haystack.includes(keyword);
+      })
+      .slice(0, 8);
+  }, [props.rows, submittedQuery]);
+  const onlineTargets = useMemo(() => webSearchTargets(submittedQuery), [submittedQuery]);
+
+  return (
+    <div className="page-stack">
+      <section className="hero">
+        <div>
+          <p className="eyebrow">CineList MVP</p>
+          <h1>浠婃櫄鐪嬩粈涔堬紝浜ょ粰涓€寮犱細璁板繂鐨勭墖鍗曘€?/h1>
+          <p>
+            鏀惰棌銆佸垎绫汇€佹煡骞冲彴銆佸揩閫熼€夌墖鍜屽啓璇勪环閮藉湪涓€涓湴鏂瑰畬鎴愶紝鍒锋柊椤甸潰鍚庢暟鎹粛淇濆瓨鍦ㄦ湰鏈烘祻瑙堝櫒銆?          </p>
+          <form
+            className="search-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setSubmittedQuery(props.query);
+            }}
+          >
+            <input
+              aria-label="鎼滅储褰辩墖"
+              placeholder="鎼滅储褰辩墖銆佺被鍨嬫垨鑻辨枃鍚?
+              value={props.query}
+              onChange={(event) => props.setQuery(event.target.value)}
+            />
+            <button className="icon-button primary" type="submit" aria-label="鎼滅储褰辩墖">
+              鈱?            </button>
+            <button type="button" onClick={props.openLibrary}>绠＄悊鐗囧崟</button>
+            <button type="button" onClick={props.openParty}>閭€璇峰叡鐪?/button>
+            <button className="primary" type="button" onClick={props.openPicker}>
+              蹇€熼€夌墖
+            </button>
+          </form>
+          <div className="resume-strip" aria-label="缁х画瑙傜湅杩涘害">
+            <div className="section-title">
+              <h2>缁х画瑙傜湅</h2>
+              <span>{progressRows.length ? "鐐瑰嚮鐩存帴瑙傜湅" : "鏆傛棤杩涘害"}</span>
+            </div>
+            {progressRows.length ? (
+              <div className="resume-list">
+                {progressRows.map(({ movie, record }) => {
+                  const progress = Math.min(99, Math.max(1, record?.progress ?? 0));
+                  const startSeconds = Math.floor(movie.durationMinutes * 60 * (progress / 100));
+                  return (
+                    <button className="resume-item" key={movie.id} onClick={() => props.startSoloWatch(movie, startSeconds)}>
+                      <span className="poster small">{movie.poster}</span>
+                      <div>
+                        <strong>{movie.title}</strong>
+                        <i><span style={{ width: `${progress}%` }} /></i>
+                      </div>
+                      <em>{progress}%</em>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="resume-empty">寮€濮嬭鐪嬪悗锛岃繖閲屼細鏄剧ず涓婃杩涘害銆?/p>
+            )}
+          </div>
+        </div>
+        <div className="home-side">
+          <div className="hero-panel">
+            <span>鏈湀宸茬湅</span>
+            <strong>{props.summary.watchedCount}</strong>
+            <p>{props.summary.totalMinutes} 鍒嗛挓 路 骞冲潎 {props.summary.averageRating || "鏆傛棤"} 鍒?/p>
+          </div>
+          <RankList title="璇勫垎鎺掕姒? items={props.ratingRank} valueSuffix="鍒? onSelect={props.openMovie} />
+          <RankList title="鎼滅储鐑害姒? items={props.heatRank} valueSuffix="鐑害" onSelect={props.openMovie} />
+        </div>
+      </section>
+
+      <Panel title="涓汉鏀惰棌">
+        <MovieGrid rows={recent} updateRecord={props.updateRecord} />
+      </Panel>
+
+      {submittedQuery.trim() && (
+        <section className="search-results">
+          <div className="section-title">
+            <h2>鎼滅储缁撴灉锛歿submittedQuery}</h2>
+            <span>{searchResults.length ? `${searchResults.length} 閮ㄥ奖鐗嘸 : "鏆傛棤鍖归厤"}</span>
+          </div>
+          {searchResults.length ? (
+            <div className="result-grid">
+              {searchResults.map(({ movie, record }) => (
+                <article className="result-card" key={movie.id}>
+                  <span className="poster">{movie.poster}</span>
+                  <div>
+                    <div className="card-title">
+                      <h3>{movie.title}</h3>
+                      <span>{movie.year} 路 {movie.type}</span>
+                    </div>
+                    <p>{movie.alias} 路 {movie.durationMinutes} 鍒嗛挓</p>
+                    <p>{movie.summary || "鏆傛棤绠€浠?}</p>
+                    <div className="chips">
+                      {movie.genres.map((genre) => <span className="chip" key={genre}>{genre}</span>)}
+                    </div>
+                    <div className="platform-tags">
+                      {movie.platforms.length ? movie.platforms.map((platform) => (
+                        <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                          {platform.platformName} 路 {platform.watchType}
+                        </a>
+                      )) : <span>鏆傛棤骞冲彴淇℃伅</span>}
+                    </div>
+                  </div>
+                  <div className="result-actions">
+                    <button
+                      className="primary"
+                      onClick={() => props.updateRecord(movie.id, { status: "鍦ㄧ湅", progress: Math.max(record?.progress ?? 0, 10) })}
+                    >
+                      缁х画
+                    </button>
+                    <button onClick={() => props.startWatchParty(movie)}>鍏辩湅</button>
+                  </div>
+                  <div className="result-rating">
+                    <RatingControl
+                      value={normalizeRating(record?.rating ?? 0)}
+                      onChange={(rating) => props.updateRecord(movie.id, { rating, status: rating > 0 ? "宸茬湅" : record?.status })}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState text="鐗囧簱閲屾病鏈夋壘鍒板尮閰嶅奖鐗囥€傚彲浠ユ崲涓叧閿瘝锛屾垨鍘烩€滄垜鐨勭墖鍗曗€濇柊澧炲奖鐗囦俊鎭€? />
+          )}
+
+          <div className="online-search">
+            <div className="section-title">
+              <h2>鍏ㄧ綉鎼滅储</h2>
+              <span>{onlineTargets.length} 涓叆鍙?/span>
+            </div>
+            <div className="online-grid">
+              {onlineTargets.map((target) => (
+                <a href={target.url} key={target.name} rel="noreferrer" target="_blank">
+                  <strong>{target.name}</strong>
+                  <span>{target.description}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="metric-grid">
+        <Metric label="鐗囧簱鎬绘暟" value={props.rows.length} />
+        <Metric label="鎯崇湅" value={props.rows.filter(({ record }) => record?.status === "鎯崇湅").length} />
+        <Metric label="鍦ㄧ湅" value={props.rows.filter(({ record }) => record?.status === "鍦ㄧ湅").length} />
+        <Metric label="宸茶瘎浠? value={props.rows.filter(({ record }) => (record?.rating ?? 0) > 0).length} />
+      </section>
+
+      <section className="split">
+        <Panel title="甯哥湅绫诲瀷">
+          <div className="chips">
+            {props.genreScores.slice(0, 6).map((item) => (
+              <span className="chip strong" key={item.genre}>
+                {item.genre} {item.score}
+              </span>
+            ))}
+          </div>
+        </Panel>
+        <Panel title="鐚滀綘鍠滄">
+          <div className="compact-list">
+            {props.recommendations.slice(0, 3).map(({ movie, reasons }) => (
+              <article key={movie.id}>
+                <span className="poster small">{movie.poster}</span>
+                <div>
+                  <strong>{movie.title}</strong>
+                  <p>{reasons[0]}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section className="split">
+        <Panel title="缁х画瑙傜湅">
+          <div className="compact-list">
+            {(watching.length ? watching : recent).map(({ movie, record }) => (
+              <article key={movie.id}>
+                <span className="poster small">{movie.poster}</span>
+                <div>
+                  <strong>{movie.title}</strong>
+                  <p>{record?.status ?? "鏈敹钘?} 路 杩涘害 {record?.progress ?? 0}%</p>
+                </div>
+                <button onClick={() => props.updateRecord(movie.id, { status: "鍦ㄧ湅", progress: Math.max(record?.progress ?? 0, 10) })}>
+                  缁х画
+                </button>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <Panel title="鐗囧簱褰辩墖">
+        <MovieGrid rows={props.rows.slice(0, 24)} updateRecord={props.updateRecord} />
+      </Panel>
+    </div>
+  );
+}
+
+function LibraryView(props: {
+  form: MovieForm;
+  setForm: (form: MovieForm) => void;
+  saveMovie: (event: FormEvent) => void;
+  editingId: string | null;
+  cancelEdit: () => void;
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  query: string;
+  setQuery: (value: string) => void;
+  statusFilter: MovieStatus | "鍏ㄩ儴";
+  setStatusFilter: (value: MovieStatus | "鍏ㄩ儴") => void;
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  editMovie: (movie: Movie) => void;
+  deleteMovie: (id: string) => void;
+}) {
+  return (
+    <div className="page-stack">
+      <PageHeader title="鎴戠殑鐗囧崟" description="鏂板褰辩墖锛岀淮鎶ゆ敹钘忕姸鎬併€佷紭鍏堢骇銆佽瘎浠峰拰鐗囧崟鍒嗙被銆? />
+      <form className="editor" onSubmit={props.saveMovie}>
+        <div className="form-grid">
+          <Input label="鐗囧悕" value={props.form.title} onChange={(title) => props.setForm({ ...props.form, title })} required />
+          <Input label="鑻辨枃鍚?鍒悕" value={props.form.alias} onChange={(alias) => props.setForm({ ...props.form, alias })} />
+          <Input label="骞翠唤" value={props.form.year} onChange={(year) => props.setForm({ ...props.form, year })} />
+          <label>
+            鍐呭褰㈠紡
+            <select value={props.form.type} onChange={(event) => props.setForm({ ...props.form, type: event.target.value as ContentType })}>
+              {["鐢靛奖", "鍓ч泦", "鍔ㄦ极", "绾綍鐗?, "缁艰壓", "鐭墽"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <Input label="绫诲瀷" value={props.form.genres} onChange={(genres) => props.setForm({ ...props.form, genres })} />
+          <Input label="鐗囬暱/鍗曢泦鍒嗛挓" value={props.form.durationMinutes} onChange={(durationMinutes) => props.setForm({ ...props.form, durationMinutes })} />
+          <Input label="灏侀潰瀛? value={props.form.poster} onChange={(poster) => props.setForm({ ...props.form, poster })} />
+          <Input label="骞冲彴" value={props.form.platforms} onChange={(platforms) => props.setForm({ ...props.form, platforms })} />
+          <Input label="瀵兼紨" value={props.form.directors} onChange={(directors) => props.setForm({ ...props.form, directors })} />
+          <Input label="婕斿憳" value={props.form.actors} onChange={(actors) => props.setForm({ ...props.form, actors })} />
+          <label className="wide">
+            绠€浠?            <textarea value={props.form.summary} onChange={(event) => props.setForm({ ...props.form, summary: event.target.value })} />
+          </label>
+        </div>
+        <div className="actions">
+          <button className="primary" type="submit">
+            {props.editingId ? "淇濆瓨淇敼" : "鏂板褰辩墖"}
+          </button>
+          {props.editingId && <button type="button" onClick={props.cancelEdit}>鍙栨秷缂栬緫</button>}
+        </div>
+      </form>
+
+      <section className="toolbar">
+        <input placeholder="鎼滅储鐗囧悕銆佺被鍨嬨€佽嫳鏂囧悕" value={props.query} onChange={(event) => props.setQuery(event.target.value)} />
+        <select value={props.statusFilter} onChange={(event) => props.setStatusFilter(event.target.value as MovieStatus | "鍏ㄩ儴")}>
+          {["鍏ㄩ儴", "鎯崇湅", "鍦ㄧ湅", "宸茬湅", "鏆傚仠", "寮冪湅"].map((item) => (
+            <option key={item}>{item}</option>
+          ))}
+        </select>
+      </section>
+
+      <MovieGrid
+        rows={props.rows}
+        updateRecord={props.updateRecord}
+        editMovie={props.editMovie}
+        deleteMovie={props.deleteMovie}
+        detailed
+      />
+    </div>
+  );
+}
+
+function PickerView(props: {
+  picker: PickerInput;
+  setPicker: (picker: PickerInput) => void;
+  recommendations: ReturnType<typeof recommend>;
+  skippedIds: string[];
+  skipBatch: () => void;
+  resetSkipped: () => void;
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  startWatchParty: (movie: Movie, startSeconds?: number) => void;
+}) {
+  return (
+    <div className="page-stack">
+      <PageHeader title="蹇€熼€夌墖" description="杈撳叆褰撲笅鏉′欢锛岃繑鍥?1 鍒?3 閮ㄥ€欓€夊奖鐗囷紝骞惰В閲婁负浠€涔堟帹鑽愩€? />
+      <section className="picker-panel">
+        <div className="segmented">
+          {[30, 60, 120].map((minutes) => (
+            <button
+              className={props.picker.availableMinutes === minutes ? "selected" : ""}
+              key={minutes}
+              onClick={() => props.setPicker({ ...props.picker, availableMinutes: minutes })}
+            >
+              {minutes} 鍒嗛挓
+            </button>
+          ))}
+        </div>
+        <label>
+          褰撳墠蹇冩儏
+          <select value={props.picker.mood} onChange={(event) => props.setPicker({ ...props.picker, mood: event.target.value as Mood })}>
+            {["杞绘澗", "鍒烘縺", "娌绘剤", "鐑ц剳"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          鍚岃浜?          <select value={props.picker.companion} onChange={(event) => props.setPicker({ ...props.picker, companion: event.target.value as Companion })}>
+            {["鐙嚜", "鎯呬荆", "鏈嬪弸", "瀹跺涵"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <CheckboxGroup
+          label="鍙敤骞冲彴"
+          options={platformOptions}
+          values={props.picker.platforms}
+          onChange={(platforms) => props.setPicker({ ...props.picker, platforms })}
+        />
+        <CheckboxGroup
+          label="鎯崇湅鐨勭被鍨?
+          options={genreOptions}
+          values={props.picker.genres}
+          onChange={(genres) => props.setPicker({ ...props.picker, genres })}
+        />
+      </section>
+
+      <section className="recommendations">
+        <div className="section-title">
+          <h2>鍊欓€夊奖鐗?/h2>
+          <div className="actions">
+            <button onClick={props.skipBatch}>鎹竴鎵?/button>
+            {props.skippedIds.length > 0 && <button onClick={props.resetSkipped}>閲嶇疆璺宠繃</button>}
+          </div>
+        </div>
+        {props.recommendations.length ? (
+          props.recommendations.map(({ movie, record, score, reasons }) => (
+            <article className="recommend-card" key={movie.id}>
+              <span className="poster">{movie.poster}</span>
+              <div>
+                <div className="card-title">
+                  <h3>{movie.title}</h3>
+                  <span>{score} 鍖归厤鍒?/span>
+                </div>
+                <p>{movie.summary}</p>
+                <div className="chips">
+                  {movie.genres.map((genre) => <span className="chip" key={genre}>{genre}</span>)}
+                  <span className="chip">{movie.durationMinutes} 鍒嗛挓</span>
+                </div>
+                <ul className="reason-list">
+                  {reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+                <div className="platforms">
+                  {movie.platforms.length ? movie.platforms.map((platform) => (
+                    <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                      {platform.platformName} 路 {platform.watchType}
+                    </a>
+                  )) : <span>鏆傛棤鐗囨簮锛屽彲璁剧疆鎻愰啋</span>}
+                </div>
+              </div>
+              <button
+                className="primary"
+                onClick={() =>
+                  props.updateRecord(movie.id, {
+                    status: "鍦ㄧ湅",
+                    progress: Math.max(record?.progress ?? 0, 10),
+                    watchPlatform: movie.platforms[0]?.platformName ?? record?.watchPlatform ?? "",
+                  })
+                }
+              >
+                寮€濮嬭鐪?              </button>
+              <button onClick={() => props.startWatchParty(movie)}>閭€璇峰叡鐪?/button>
+            </article>
+          ))
+        ) : (
+          <EmptyState text="娌℃湁瀹屽叏鍖归厤鐨勫奖鐗囥€傚缓璁斁瀹芥椂闂磋寖鍥淬€佸噺灏戠被鍨嬮檺鍒讹紝鎴栨墿澶у钩鍙拌寖鍥淬€? />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RankingsView(props: {
+  ratingRank: ReturnType<typeof calcRatingRank>;
+  heatRank: ReturnType<typeof calcSearchHeatRank>;
+  costumeRank: ReturnType<typeof calcTagHeatRank>;
+  urbanRank: ReturnType<typeof calcTagHeatRank>;
+  shortDramaRank: ReturnType<typeof calcShortDramaRank>;
+  yingjiRank: ReturnType<typeof calcYingjiRank>;
+  categoryRanks: ReturnType<typeof calcCategoryRanks>;
+  openMovie: (movie: Movie) => void;
+}) {
+  return (
+    <div className="page-stack">
+      <PageHeader
+        title="鎺掕姒?
+        description="鎸夎瘎鍒嗐€佹悳绱㈢儹搴︺€侀鏉愭爣绛惧拰褰辫抗鐢ㄦ埛璁板綍鐢熸垚姒滃崟锛岀偣鍑绘潯鐩嵆鍙煡鐪嬪奖鐗囧唴瀹广€?
+      />
+      <section className="ranking-feature">
+        <RankList title="褰辫抗鎺掕姒? items={props.yingjiRank} valueSuffix="褰辫抗鍒? onSelect={props.openMovie} />
+        <RankList title="鎼滅储鐑害姒? items={props.heatRank} valueSuffix="鐑害" onSelect={props.openMovie} />
+      </section>
+      <section className="ranking-grid">
+        <RankList title="璇勫垎鎺掕姒? items={props.ratingRank} valueSuffix="鍒? onSelect={props.openMovie} />
+        <RankList title="鍙よ鎺掕姒? items={props.costumeRank} valueSuffix="鐑害" onSelect={props.openMovie} />
+        <RankList title="閮藉競鎺掕姒? items={props.urbanRank} valueSuffix="鐑害" onSelect={props.openMovie} />
+        <RankList title="鐭墽鎺掕姒? items={props.shortDramaRank} valueSuffix="鐑害" onSelect={props.openMovie} />
+      </section>
+      <section className="category-ranks">
+        <div className="section-title">
+          <h2>鍏ㄧ綉鎼滅储褰辩墖鍒嗙被姒?/h2>
+          <span>鎸夊奖鐗囨爣绛惧垎绫诲悗鍐嶈绠楃儹搴?/span>
+        </div>
+        <div className="ranking-grid">
+          {props.categoryRanks.map((group) => (
+            <RankList
+              title={`${group.label}姒渀}
+              items={group.items}
+              valueSuffix="鐑害"
+              key={group.label}
+              onSelect={props.openMovie}
+            />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SoloWatchView(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  row?: { movie: Movie; record?: UserMovieRecord };
+  watchState: { movieId: string; positionSeconds: number; playing: boolean } | null;
+  setWatchState: (state: { movieId: string; positionSeconds: number; playing: boolean } | null) => void;
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  startSoloWatch: (movie: Movie, startSeconds?: number) => void;
+}) {
+  if (!props.row || !props.watchState) {
+    const candidates = props.rows
+      .filter(({ record }) => (record?.progress ?? 0) > 0 || record?.status === "鍦ㄧ湅" || record?.status === "鎯崇湅")
+      .slice(0, 12);
+    return (
+      <div className="page-stack">
+        <PageHeader title="瑙傜湅" description="閫夋嫨涓€閮ㄥ奖鐗囩洿鎺ヨ鐪嬶紝杩涘害浼氫繚瀛樺埌浣犵殑鐗囧崟璁板綍銆? />
+        {candidates.length ? (
+          <section className="watch-pick-grid">
+            {candidates.map(({ movie, record }) => {
+              const progress = Math.max(record?.progress ?? 0, 0);
+              const startSeconds = Math.floor(movie.durationMinutes * 60 * (progress / 100));
+              return (
+                <button className="watch-pick-card" key={movie.id} onClick={() => props.startSoloWatch(movie, startSeconds)}>
+                  <span className="poster">{movie.poster}</span>
+                  <div>
+                    <strong>{movie.title}</strong>
+                    <p>{movie.type} 路 {movie.year} 路 杩涘害 {progress}%</p>
+                    <i><span style={{ width: `${progress}%` }} /></i>
+                  </div>
+                </button>
+              );
+            })}
+          </section>
+        ) : (
+          <EmptyState text="鏆傛棤姝ｅ湪瑙傜湅鐨勫奖鐗囥€傚彲浠ュ厛鍘婚椤垫悳绱紝鎴栧湪鐗囧崟閲屾爣璁颁竴閮ㄥ奖鐗囦负鍦ㄧ湅銆? />
+        )}
+      </div>
+    );
+  }
+  const { movie, record } = props.row;
+  const maxSeconds = Math.max(movie.durationMinutes * 60, 60);
+  const position = Math.min(maxSeconds, Math.max(0, props.watchState.positionSeconds));
+  const progress = Math.round((position / maxSeconds) * 100);
+  const primaryPlatform = movie.platforms[0];
+
+  function updatePosition(positionSeconds: number, playing = props.watchState?.playing ?? false) {
+    const safePosition = Math.min(maxSeconds, Math.max(0, positionSeconds));
+    props.setWatchState({ movieId: movie.id, positionSeconds: safePosition, playing });
+    props.updateRecord(movie.id, {
+      status: safePosition >= maxSeconds ? "宸茬湅" : "鍦ㄧ湅",
+      progress: Math.min(100, Math.round((safePosition / maxSeconds) * 100)),
+      watchPlatform: movie.platforms[0]?.platformName ?? record?.watchPlatform ?? "",
+    });
+  }
+
+  function openPrimaryPlatform() {
+    updatePosition(position, true);
+    openPlaybackResource(primaryPlatform, movie.title);
+  }
+
+  return (
+    <div className="page-stack">
+      <PageHeader title="鐩存帴瑙傜湅" description="浠庝笂娆¤繘搴︾户缁紝杩涘害浼氫繚瀛樺埌浣犵殑鐗囧崟璁板綍锛涘钩鍙板叆鍙ｅ湪鎾斁鍣ㄤ笅鏂广€? />
+      <section className="solo-player">
+        <div className="solo-screen">
+          <span>{movie.poster}</span>
+          <button className="screen-play-button" onClick={openPrimaryPlatform} disabled={!primaryPlatform} aria-label="鎵撳紑骞冲彴瑙傜湅">
+            鈻?          </button>
+          <strong>{movie.title}</strong>
+          <p>{props.watchState.playing ? "鎾斁涓? : "宸叉殏鍋?} 路 {secondsLabel(position)} / {secondsLabel(maxSeconds)}</p>
+          {!primaryPlatform && <p className="resource-empty">鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮</p>}
+        </div>
+        <div className="solo-controls">
+          <input
+            aria-label="瑙傜湅杩涘害"
+            type="range"
+            min="0"
+            max={maxSeconds}
+            value={position}
+            onChange={(event) => updatePosition(Number(event.target.value))}
+          />
+          <div className="actions">
+            <button className="primary" onClick={openPrimaryPlatform} disabled={!primaryPlatform}>
+              {primaryPlatform ? `鎵撳紑${primaryPlatform.platformName}鎾斁鍏ュ彛` : "鏆傛棤鎾斁鍏ュ彛"}
+            </button>
+            <button onClick={() => updatePosition(position, false)}>鏆傚仠</button>
+            <button onClick={() => updatePosition(position - 30)}>鍚庨€€ 30 绉?/button>
+            <button onClick={() => updatePosition(position + 30, true)}>鍓嶈繘 30 绉?/button>
+            <button onClick={() => updatePosition(maxSeconds, false)}>鏍囪鐪嬪畬</button>
+          </div>
+          <p>褰撳墠杩涘害 {progress}%</p>
+          <p className="notice">杩欓噷璐熻矗璁板綍鍜屾仮澶嶈繘搴︺€傜偣鍑绘挱鏀句細鎵撳紑璇ュ奖鐗囧湪骞冲彴閲岀殑鎼滅储/鎾斁鍏ュ彛锛屽疄闄呮挱鏀剧敱瀵瑰簲骞冲彴瀹屾垚銆?/p>
+          <div className="platform-tags">
+            {movie.platforms.length ? movie.platforms.map((platform) => (
+              <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                鎵撳紑 {platform.platformName}
+              </a>
+            )) : <span>鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮</span>}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function WatchPartyView(props: {
+  movies: Movie[];
+  draft: WatchRoomDraft;
+  setDraft: (draft: WatchRoomDraft) => void;
+  room: WatchRoom | null;
+  chatInput: string;
+  setChatInput: (value: string) => void;
+  createRoom: () => void;
+  sendMessage: (event: FormEvent) => void;
+  updatePlayback: (patch: Partial<PlaybackState>, updatedBy?: string) => void;
+}) {
+  const [movieSearch, setMovieSearch] = useState("");
+  const selectedMovie = props.movies.find((movie) => movie.id === props.draft.movieId) ?? props.movies[0];
+  const movieOptions = useMemo(() => {
+    const keyword = movieSearch.trim().toLowerCase();
+    if (!keyword) return props.movies.slice(0, 80);
+    return props.movies
+      .filter((movie) => [
+        movie.title,
+        movie.alias,
+        movie.type,
+        movie.genres.join(" "),
+        movie.actors.join(" "),
+        movie.platforms.map((platform) => platform.platformName).join(" "),
+      ].join(" ").toLowerCase().includes(keyword))
+      .slice(0, 80);
+  }, [movieSearch, props.movies]);
+  useEffect(() => {
+    if (!movieSearch.trim() || !movieOptions.length) return;
+    if (movieOptions.some((movie) => movie.id === props.draft.movieId)) return;
+    changeMovie(movieOptions[0].id);
+  }, [movieOptions, movieSearch, props.draft.movieId]);
+  const roomMovie = props.movies.find((movie) => movie.id === props.room?.movieId) ?? selectedMovie;
+  const selectedPlatform =
+    roomMovie?.platforms.find((platform) => platform.platformName === props.room?.platformName) ??
+    selectedMovie?.platforms.find((platform) => platform.platformName === props.draft.platformName) ??
+    selectedMovie?.platforms[0];
+  const embeddedPlaybackUrl = selectedPlatform ? playableUrl(selectedPlatform, roomMovie?.title ?? selectedMovie?.title ?? "") : "";
+  const hostName = props.draft.hostName.trim() || "鎴?;
+  const friendName = props.draft.friendName.trim() || "濂藉弸";
+
+  function copyInviteLink() {
+    if (!props.room) return;
+    void navigator.clipboard?.writeText(props.room.inviteLink);
+  }
+
+  function changeMovie(movieId: string) {
+    const nextMovie = props.movies.find((movie) => movie.id === movieId);
+    props.setDraft({
+      ...props.draft,
+      movieId,
+      platformName: nextMovie?.platforms[0]?.platformName ?? props.draft.platformName,
+    });
+  }
+
+  function playOnPlatform() {
+    if (!props.room) return;
+    if (!selectedPlatform) {
+      window.alert("鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮");
+      return;
+    }
+    props.updatePlayback({ status: "鎾斁涓? });
+  }
+
+  function openChatPopup() {
+    if (!props.room) return null;
+    const url = `/chat.html?room=${encodeURIComponent(props.room.id)}&author=${encodeURIComponent(hostName)}`;
+    return window.open(url, `cinelist-chat-${props.room.id}`, "width=390,height=620,resizable=yes,scrollbars=yes");
+  }
+
+  return (
+    <div className="page-stack">
+      <PageHeader
+        title="涓€璧风湅"
+        description="鍒涘缓涓€涓叡鐪嬫埧闂达紝鎶婂奖鐗囥€佸钩鍙板叆鍙ｃ€佽亰澶╁拰鎾斁鍚屾鎸囦护鏀惧湪鍚屼竴涓晫闈㈤噷銆?
+      />
+
+      <section className="watch-hero">
+        <div>
+          <p className="eyebrow">Watch Party MVP</p>
+          <h1>鍏变韩鐨勬槸瑙傚奖鑺傚锛屼笉鎼繍浼氬憳鐗囨簮銆?/h1>
+          <p>
+            杩欎釜椤甸潰璐熻矗閭€璇枫€佽亰澶╁拰鍚屾鎾斁鎰忓浘銆傛寮忓浜哄疄鏃跺悓姝ラ渶瑕佸悗绔?WebSocket锛涚涓夋柟浼氬憳鍐呭浠嶇敱鍚勮嚜璐﹀彿鍦ㄥ搴斿钩鍙板悎娉曟挱鏀俱€?          </p>
+        </div>
+        <div className="watch-status">
+          <span>{props.room ? "鎴块棿宸插垱寤? : "绛夊緟鍒涘缓鎴块棿"}</span>
+          <strong>{props.room?.id.replace("room-", "#") ?? "Ready"}</strong>
+        </div>
+      </section>
+
+      <section className="watch-layout">
+        <Panel title="鍒涘缓閭€璇?>
+          <div className="form-grid">
+            <label>
+              鎼滅储褰辩墖
+              <input
+                placeholder="杈撳叆鐗囧悕銆佺被鍨嬨€佸钩鍙?
+                value={movieSearch}
+                onChange={(event) => setMovieSearch(event.target.value)}
+              />
+            </label>
+            <label>
+              閫夋嫨褰辩墖
+              <select value={props.draft.movieId} onChange={(event) => changeMovie(event.target.value)}>
+                {movieOptions.map((movie) => (
+                  <option value={movie.id} key={movie.id}>{movie.title}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              瑙傜湅骞冲彴
+              <select
+                value={props.draft.platformName}
+                onChange={(event) => props.setDraft({ ...props.draft, platformName: event.target.value })}
+              >
+                {(selectedMovie?.platforms.length ? selectedMovie.platforms : platformOptions.map((platformName) => makePlatform(platformName, selectedMovie?.title ?? ""))).map((platform) => (
+                  <option value={platform.platformName} key={platform.platformName}>{platform.platformName}</option>
+                ))}
+              </select>
+            </label>
+            <Input label="鎴戠殑鏄电О" value={props.draft.hostName} onChange={(hostName) => props.setDraft({ ...props.draft, hostName })} />
+            <Input label="濂藉弸鏄电О" value={props.draft.friendName} onChange={(friendName) => props.setDraft({ ...props.draft, friendName })} />
+          </div>
+          <div className="actions">
+            <button className="primary" onClick={props.createRoom}>鍒涘缓鍏辩湅鎴块棿</button>
+            {selectedPlatform && (
+              <a className="button-link" href={playableUrl(selectedPlatform, selectedMovie?.title ?? "")} rel="noreferrer" target="_blank">
+                鎵撳紑骞冲彴
+              </a>
+            )}
+          </div>
+
+          {props.room && (
+            <div className="invite-box">
+              <span>閭€璇烽摼鎺?/span>
+              <code>{props.room.inviteLink}</code>
+              <button onClick={copyInviteLink}>澶嶅埗閾炬帴</button>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="鎴块棿鎴愬憳">
+          <div className="room-movie">
+            <span className="poster">{roomMovie?.poster ?? "褰?}</span>
+            <div>
+              <h3>{roomMovie?.title ?? "璇烽€夋嫨褰辩墖"}</h3>
+              <p>{roomMovie?.alias} 路 {props.room?.platformName ?? props.draft.platformName}</p>
+            </div>
+          </div>
+          <div className="member-list">
+            {(props.room?.members ?? [hostName, friendName]).map((member) => (
+              <span className="chip strong" key={member}>{member}</span>
+            ))}
+          </div>
+          <p className="notice">
+            鐜板湪鏄墠绔師鍨嬶細鍚屼竴娴忚鍣ㄥ唴鍙綋楠屾祦绋嬨€傛寮忎笂绾挎椂锛屾埧闂寸姸鎬併€佹秷鎭拰鎾斁鎸囦护浼氶€氳繃 WebSocket 骞挎挱缁欓摼鎺ラ噷鐨勬瘡涓垚鍛樸€?          </p>
+        </Panel>
+      </section>
+
+      <section className="watch-party-shell">
+        <aside className="watch-chat-pane">
+          <div className="section-title">
+            <span>当前房间聊天</span>
+            <button disabled={!props.room} onClick={openChatPopup}>弹出小窗</button>
+          </div>
+          <div className="watch-chat-scroll">
+            {(props.room?.messages ?? []).map((message) => (
+              <article className={message.author === "系统" ? "system-message" : ""} key={message.id}>
+                <strong>{message.author}</strong>
+                <p>{message.text}</p>
+                <span>{timeLabel(message.createdAt)}</span>
+              </article>
+            ))}
+            {!props.room && <EmptyState text="创建房间后即可开始聊天。" />}
+          </div>
+          <form className="chat-form shell-chat-form" onSubmit={props.sendMessage}>
+            <input
+              aria-label="聊天内容"
+              disabled={!props.room}
+              placeholder="边看边聊，吐槽也有进度条"
+              value={props.chatInput}
+              onChange={(event) => props.setChatInput(event.target.value)}
+            />
+            <button className="primary" disabled={!props.room} type="submit">发送</button>
+          </form>
+        </aside>
+
+        <section className="watch-video-pane">
+          <div className="video-frame">
+            {selectedPlatform ? (
+              <iframe
+                key={embeddedPlaybackUrl}
+                src={embeddedPlaybackUrl}
+                title={`${roomMovie?.title ?? selectedMovie?.title ?? "影迹"} 播放窗口`}
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <div className="video-empty">
+                <span>{roomMovie?.poster ?? "影"}</span>
+                <p>暂时无法找到影视资源</p>
+              </div>
+            )}
+          </div>
+          <div className="video-control-bar">
+            <div>
+              <strong>{roomMovie?.title ?? "未选择影片"}</strong>
+              <p>
+                {props.room?.playback.status ?? "已暂停"} · {secondsLabel(props.room?.playback.positionSeconds ?? 0)} ·
+                {props.room?.playback.playbackRate ?? 1}x
+              </p>
+            </div>
+            <a
+              className={selectedPlatform ? "button-link primary" : "button-link disabled"}
+              href={selectedPlatform ? embeddedPlaybackUrl : undefined}
+              rel="noreferrer"
+              target="_blank"
+            >
+              在新标签打开播放
+            </a>
+          </div>
+          <input
+            aria-label="同步进度"
+            type="range"
+            min="0"
+            max={Math.max((roomMovie?.durationMinutes ?? 90) * 60, 60)}
+            value={props.room?.playback.positionSeconds ?? 0}
+            onChange={(event) => props.updatePlayback({ positionSeconds: Number(event.target.value) })}
+            disabled={!props.room}
+          />
+          <div className="actions">
+            <button disabled={!props.room || !selectedPlatform} onClick={playOnPlatform}>播放</button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "已暂停" })}>暂停</button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: Math.max((props.room?.playback.positionSeconds ?? 0) - 30, 0) })}>
+              后退 30 秒
+            </button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: (props.room?.playback.positionSeconds ?? 0) + 30 })}>
+              前进 30 秒
+            </button>
+          </div>
+          <div className="segmented compact">
+            {[0.75, 1, 1.25, 1.5].map((rate) => (
+              <button
+                disabled={!props.room}
+                className={props.room?.playback.playbackRate === rate ? "selected" : ""}
+                key={rate}
+                onClick={() => props.updatePlayback({ playbackRate: rate })}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+          <p className="sync-meta">
+            最近同步：{props.room ? `${props.room.playback.updatedBy} · ${timeLabel(props.room.playback.updatedAt)}` : "创建房间后可用"}
+          </p>
+          <p className="notice">如果右侧视频网站拒绝内嵌播放，请点击“在新标签打开播放”，左侧聊天仍会留在本页。</p>
+        </section>
+      </section>
+
+      <section className="watch-layout">
+        <Panel title="鍚屾鎺у埗">
+          <div className="sync-stage" aria-label="鍏辩湅鍚屾棰勮">
+            <div className="screen-glow">
+              <span>{roomMovie?.poster ?? "褰?}</span>
+              <button className="screen-play-button" disabled={!props.room || !selectedPlatform} onClick={playOnPlatform} aria-label="鎾斁骞跺脊鍑鸿亰澶╃獥">
+                鈻?              </button>
+            </div>
+            <div>
+              <strong>{roomMovie?.title ?? "鏈€夋嫨褰辩墖"}</strong>
+              <p>
+                {props.room?.playback.status ?? "宸叉殏鍋?} 路 {secondsLabel(props.room?.playback.positionSeconds ?? 0)} 路
+                {props.room?.playback.playbackRate ?? 1}x
+              </p>
+              {!selectedPlatform && <p className="resource-empty">鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮</p>}
+            </div>
+          </div>
+          <input
+            aria-label="鍚屾杩涘害"
+            type="range"
+            min="0"
+            max={Math.max((roomMovie?.durationMinutes ?? 90) * 60, 60)}
+            value={props.room?.playback.positionSeconds ?? 0}
+            onChange={(event) => props.updatePlayback({ positionSeconds: Number(event.target.value) })}
+            disabled={!props.room}
+          />
+          <div className="actions">
+            <button disabled={!props.room || !selectedPlatform} onClick={playOnPlatform}>
+              {selectedPlatform ? `鎾斁骞跺脊鍑鸿亰澶╃獥` : "鏆傛棤鎾斁鍏ュ彛"}
+            </button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "宸叉殏鍋? })}>鏆傚仠</button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: Math.max((props.room?.playback.positionSeconds ?? 0) - 30, 0) })}>
+              鍚庨€€ 30 绉?            </button>
+            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: (props.room?.playback.positionSeconds ?? 0) + 30 })}>
+              鍓嶈繘 30 绉?            </button>
+          </div>
+          <div className="segmented compact">
+            {[0.75, 1, 1.25, 1.5].map((rate) => (
+              <button
+                disabled={!props.room}
+                className={props.room?.playback.playbackRate === rate ? "selected" : ""}
+                key={rate}
+                onClick={() => props.updatePlayback({ playbackRate: rate })}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+          <p className="sync-meta">
+            鏈€杩戝悓姝ワ細{props.room ? `${props.room.playback.updatedBy} 路 ${timeLabel(props.room.playback.updatedAt)}` : "鍒涘缓鎴块棿鍚庡彲鐢?}
+          </p>
+          <p className="notice">鎾斁浼氬悓鏃跺脊鍑哄奖杩硅亰澶╁皬绐楋紝骞跺湪鏂版爣绛炬墦寮€骞冲彴鍏ュ彛锛涘鏋滄祻瑙堝櫒鎷︽埅寮圭獥锛岃鍏佽鏈珯寮圭獥銆?/p>
+        </Panel>
+
+        <Panel title="鑱婂ぉ浜掑姩">
+          <div className="section-title">
+            <span>褰撳墠鎴块棿鑱婂ぉ</span>
+            <button className="primary" disabled={!props.room} onClick={openChatPopup}>寮瑰嚭鑱婂ぉ绐?/button>
+          </div>
+          <div className="chat-list">
+            {(props.room?.messages ?? []).map((message) => (
+              <article className={message.author === "绯荤粺" ? "system-message" : ""} key={message.id}>
+                <strong>{message.author}</strong>
+                <p>{message.text}</p>
+                <span>{timeLabel(message.createdAt)}</span>
+              </article>
+            ))}
+            {!props.room && <EmptyState text="鍒涘缓鎴块棿鍚庡嵆鍙紑濮嬭亰澶┿€? />}
+          </div>
+          <form className="chat-form" onSubmit={props.sendMessage}>
+            <input
+              aria-label="鑱婂ぉ鍐呭"
+              disabled={!props.room}
+              placeholder="杈圭湅杈硅亰锛屽悙妲戒篃鏈夎繘搴︽潯"
+              value={props.chatInput}
+              onChange={(event) => props.setChatInput(event.target.value)}
+            />
+            <button className="primary" disabled={!props.room} type="submit">鍙戦€?/button>
+          </form>
+        </Panel>
+      </section>
+
+      <section className="implementation-note">
+        <h2>姝ｅ紡瀹炵幇蹇呰鏉′欢</h2>
+        <div className="note-grid">
+          <span>WebSocket 鎴块棿鏈嶅姟</span>
+          <span>鎴块棿涓庢秷鎭暟鎹簱</span>
+          <span>娓稿鎴栬处鍙疯韩浠?/span>
+          <span>骞冲彴鍚堟硶鎾斁鍏ュ彛</span>
+          <span>鎾斁鎸囦护鍐茬獊澶勭悊</span>
+          <span>閭€璇烽摼鎺ユ潈闄愭帶鍒?/span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DiscussionView(props: {
+  movies: Movie[];
+  records: Record<string, UserMovieRecord>;
+  discussions: Record<string, DiscussionComment[]>;
+  loadDiscussions: (movieId: string) => void | Promise<void>;
+  addComment: (movieId: string, text: string, parentId: string | null) => void;
+  toggleLike: (movieId: string, commentId: string) => void;
+  goHome: () => void;
+  startSoloWatch: (movie: Movie, startSeconds?: number) => void;
+  startWatchParty: (movie: Movie, startSeconds?: number) => void;
+}) {
+  const [selectedMovieId, setSelectedMovieId] = useState(props.movies[0]?.id ?? "");
+  const [movieSearch, setMovieSearch] = useState("");
+  const [draft, setDraft] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const selectedMovie = props.movies.find((movie) => movie.id === selectedMovieId) ?? props.movies[0];
+  const movieSearchTerm = movieSearch.trim().toLowerCase();
+  const searchedMovies = movieSearchTerm
+    ? props.movies.filter((movie) => {
+        const searchable = [
+          movie.title,
+          movie.alias,
+          movie.type,
+          movie.year.toString(),
+          movie.genres.join(" "),
+          movie.platforms.map((platform) => platform.platformName).join(" "),
+        ].join(" ").toLowerCase();
+        return searchable.includes(movieSearchTerm);
+      })
+    : [];
+  const comments = selectedMovie ? props.discussions[selectedMovie.id] ?? [] : [];
+  const rootComments = comments
+    .filter((comment) => !comment.parentId)
+    .sort((a, b) => b.likes - a.likes || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const repliesByParent = comments.reduce<Record<string, DiscussionComment[]>>((groups, comment) => {
+    if (!comment.parentId) return groups;
+    groups[comment.parentId] = [...(groups[comment.parentId] ?? []), comment].sort(
+      (a, b) => b.likes - a.likes || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    return groups;
+  }, {});
+
+  useEffect(() => {
+    if (!selectedMovie?.id) return;
+    void props.loadDiscussions(selectedMovie.id);
+  }, [selectedMovie?.id]);
+
+  async function submitComment(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedMovie) return;
+    await props.addComment(selectedMovie.id, draft, null);
+    await props.loadDiscussions(selectedMovie.id);
+    setDraft("");
+  }
+
+  async function submitReply(event: FormEvent, parentId: string) {
+    event.preventDefault();
+    if (!selectedMovie) return;
+    await props.addComment(selectedMovie.id, replyDrafts[parentId] ?? "", parentId);
+    await props.loadDiscussions(selectedMovie.id);
+    setReplyDrafts((current) => ({ ...current, [parentId]: "" }));
+  }
+
+  if (!selectedMovie) return <EmptyState text="鏆傛棤褰辩墖锛屽厛鍘绘垜鐨勭墖鍗曟柊澧炰竴閮ㄥ惂銆? />;
+
+  return (
+    <div className="page-stack">
+      <div className="page-header-actions">
+        <PageHeader title="璁ㄨ鍖? description="鍏堢湅褰辩墖鍐呭锛屽啀杩涘叆璁ㄨ鏍戞礊銆傛父瀹㈠拰鐧诲綍鐢ㄦ埛閮藉彲浠ヨ瘎璁恒€佺偣璧炲拰鍥炲銆? />
+        <button type="button" onClick={props.goHome}>杩斿洖褰辫抗涓婚〉</button>
+      </div>
+      <section className="discussion-layout">
+        <Panel title="褰辩墖鍐呭">
+          <label>
+            鎼滅储褰辩墖
+            <input
+              placeholder="杈撳叆鐗囧悕銆佺被鍨嬨€佸勾浠芥垨骞冲彴"
+              value={movieSearch}
+              onChange={(event) => setMovieSearch(event.target.value)}
+            />
+          </label>
+          {movieSearchTerm && (
+            <div className="discussion-search-results">
+              {searchedMovies.length ? searchedMovies.map((movie) => (
+                <button
+                  className={movie.id === selectedMovie.id ? "active" : ""}
+                  key={movie.id}
+                  onClick={() => setSelectedMovieId(movie.id)}
+                  type="button"
+                >
+                  {movie.title}
+                  <span>{movie.type} 路 {movie.year}</span>
+                </button>
+              )) : <span>娌℃湁鎵惧埌鍖归厤褰辩墖</span>}
+            </div>
+          )}
+          <label>
+            閫夋嫨褰辩墖
+            <select value={selectedMovie.id} onChange={(event) => setSelectedMovieId(event.target.value)}>
+              {props.movies.map((movie) => (
+                <option value={movie.id} key={movie.id}>{movie.title}</option>
+              ))}
+            </select>
+          </label>
+          <article className="discussion-movie">
+            <span className="poster">{selectedMovie.poster}</span>
+            <div>
+              <p className="eyebrow">{selectedMovie.type} 路 {selectedMovie.year}</p>
+              <h2>{selectedMovie.title}</h2>
+              <p>{selectedMovie.alias || "鏆傛棤鍒悕"} 路 {selectedMovie.durationMinutes} 鍒嗛挓 路 {props.records[selectedMovie.id]?.status ?? "鏈敹钘?}</p>
+              <p>{selectedMovie.summary || "鏆傛棤绠€浠?}</p>
+              <div className="chips">
+                {selectedMovie.genres.map((genre) => <span className="chip strong" key={genre}>{genre}</span>)}
+              </div>
+            </div>
+          </article>
+          <div className="platform-tags">
+            {selectedMovie.platforms.length ? selectedMovie.platforms.map((platform) => (
+              <a href={playableUrl(platform, selectedMovie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                {platform.platformName} 路 {platform.watchType}
+              </a>
+            )) : <span>鏆傛椂鏃犳硶鎵惧埌褰辫璧勬簮</span>}
+          </div>
+          <div className="actions">
+            <button onClick={() => props.startSoloWatch(selectedMovie)}>鐩存帴瑙傜湅</button>
+            <button className="primary" onClick={() => props.startWatchParty(selectedMovie)}>涓€璧风湅</button>
+          </div>
+        </Panel>
+
+        <Panel title="璁ㄨ鏍戞礊">
+          <form className="discussion-form" onSubmit={submitComment}>
+            <textarea
+              aria-label="鍙戝竷璇勮"
+              placeholder="鍐欎笅浣犵殑鎰熷彈銆佺枒闂€佸悙妲芥垨鎺ㄨ崘鐞嗙敱"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button className="primary" type="submit">鍙戝竷璇勮</button>
+          </form>
+          <div className="discussion-list">
+            {rootComments.length ? rootComments.map((comment) => (
+              <article className="comment-card" key={comment.id}>
+                <CommentBody comment={comment} movieId={selectedMovie.id} toggleLike={props.toggleLike} />
+                <form className="reply-form" onSubmit={(event) => submitReply(event, comment.id)}>
+                  <input
+                    aria-label="鍥炲璇勮"
+                    placeholder="鍥炲杩欐潯璇勮"
+                    value={replyDrafts[comment.id] ?? ""}
+                    onChange={(event) => setReplyDrafts((current) => ({ ...current, [comment.id]: event.target.value }))}
+                  />
+                  <button type="submit">鍥炲</button>
+                </form>
+                {!!repliesByParent[comment.id]?.length && (
+                  <div className="reply-list">
+                    {repliesByParent[comment.id].map((reply) => (
+                      <article className="comment-card reply" key={reply.id}>
+                        <CommentBody comment={reply} movieId={selectedMovie.id} toggleLike={props.toggleLike} />
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+            )) : <EmptyState text="杩樻病鏈夎瘎璁恒€傛潵褰撶涓€涓捇杩涙爲娲炵殑浜恒€? />}
+          </div>
+        </Panel>
+      </section>
+    </div>
+  );
+}
+
+function CommentBody(props: {
+  comment: DiscussionComment;
+  movieId: string;
+  toggleLike: (movieId: string, commentId: string) => void;
+}) {
+  return (
+    <>
+      <div className="comment-head">
+        <strong>{props.comment.author}</strong>
+        <span>{timeLabel(props.comment.createdAt)}</span>
+      </div>
+      <p>{props.comment.text}</p>
+      <button
+        className={props.comment.likedByMe ? "like-button active" : "like-button"}
+        onClick={() => props.toggleLike(props.movieId, props.comment.id)}
+      >
+        馃憤 {props.comment.likes}
+      </button>
+    </>
+  );
+}
+
+function SummaryView(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  summary: ReturnType<typeof calcSummary>;
+  genreScores: { genre: string; score: number }[];
+}) {
+  return (
+    <div className="page-stack">
+      <PageHeader title="涓汉鎬荤粨" description="浠庣湡瀹炶褰辫褰曚腑缁熻鏁伴噺銆佹椂闀裤€佸亸濂藉拰浠ｈ〃浣滃搧銆? />
+      <section className="metric-grid">
+        <Metric label="宸茬湅鏁伴噺" value={props.summary.watchedCount} />
+        <Metric label="瑙傜湅鏃堕暱" value={`${props.summary.totalMinutes} 鍒嗛挓`} />
+        <Metric label="骞冲潎璇勫垎" value={props.summary.averageRating || "鏆傛棤"} />
+        <Metric label="浜屽埛/閲嶇湅" value={props.summary.rewatchCount} />
+      </section>
+      <section className="split">
+        <Panel title="绫诲瀷鍋忓ソ">
+          <BarList items={props.genreScores.slice(0, 8).map((item) => ({ label: item.genre, value: item.score }))} />
+        </Panel>
+        <Panel title="骞冲彴鍒嗗竷">
+          <BarList items={Object.entries(props.summary.platformMap).map(([label, value]) => ({ label, value }))} />
+        </Panel>
+      </section>
+      <Panel title="浠ｈ〃浣滃搧">
+        <MovieGrid rows={props.rows.filter(({ record }) => normalizeRating(record?.rating ?? 0) >= 4).slice(0, 6)} updateRecord={() => undefined} />
+      </Panel>
+    </div>
+  );
+}
+
+function SettingsView(props: {
+  profile: UserProfile;
+  setProfile: (profile: UserProfile) => void;
+  resetData: () => void;
+  toggleArrayField: <T extends string>(value: T, current: T[], update: (next: T[]) => void) => void;
+}) {
+  const senior = props.profile.privacySettings.useAge && isSenior(props.profile.ageRange);
+  return (
+    <div className="page-stack">
+      <PageHeader title="璁剧疆" description="绠＄悊鐢ㄦ埛鐢诲儚銆佸父鐢ㄥ钩鍙般€侀殣绉佹帶鍒跺拰瀛楀箷杈呭姪銆? />
+      <section className="settings-grid">
+        <Panel title="鐢ㄦ埛鐢诲儚">
+          <label>
+            骞撮緞娈?            <select value={props.profile.ageRange} onChange={(event) => props.setProfile({ ...props.profile, ageRange: event.target.value, manualSubtitle: false })}>
+              {["涓嶆効閫忛湶", "18浠ヤ笅", "18-25", "26-35", "36-45", "46-54", "55-64", "65浠ヤ笂"].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            鎬у埆
+            <select value={props.profile.gender} onChange={(event) => props.setProfile({ ...props.profile, gender: event.target.value })}>
+              {["涓嶄究閫忛湶", "鐢?, "濂?, "闈炰簩鍏?, "鑷畾涔?].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <Input label="鍦板尯" value={props.profile.region} onChange={(region) => props.setProfile({ ...props.profile, region })} />
+        </Panel>
+        <Panel title="鎺ㄨ崘鎺у埗">
+          <CheckboxGroup
+            label="鍠滄绫诲瀷"
+            options={genreOptions}
+            values={props.profile.favoriteGenres}
+            onChange={(favoriteGenres) => props.setProfile({ ...props.profile, favoriteGenres })}
+          />
+          <CheckboxGroup
+            label="甯哥敤骞冲彴"
+            options={platformOptions}
+            values={props.profile.commonPlatforms}
+            onChange={(commonPlatforms) => props.setProfile({ ...props.profile, commonPlatforms })}
+          />
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.profile.privacySettings.useAge}
+              onChange={(event) => props.setProfile({ ...props.profile, privacySettings: { ...props.profile.privacySettings, useAge: event.target.checked } })}
+            />
+            鍏佽骞撮緞娈靛弬涓庡喎鍚姩鎺ㄨ崘
+          </label>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.profile.privacySettings.useGender}
+              onChange={(event) => props.setProfile({ ...props.profile, privacySettings: { ...props.profile.privacySettings, useGender: event.target.checked } })}
+            />
+            鍏佽鎬у埆鍙備笌鍐峰惎鍔ㄦ帹鑽?          </label>
+        </Panel>
+        <Panel title="瀛楀箷杈呭姪">
+          {senior && <p className="notice">宸茶瘑鍒负 55 宀佷互涓婂勾榫勬锛岄娆℃挱鏀鹃粯璁ゅ缓璁?130% 澶у彿瀛楀箷銆?/p>}
+          <label>
+            瀛楀箷瀛楀彿锛歿props.profile.subtitleScale}%
+            <input
+              type="range"
+              min="80"
+              max="200"
+              step="10"
+              value={props.profile.subtitleScale}
+              onChange={(event) => props.setProfile({ ...props.profile, subtitleScale: Number(event.target.value), manualSubtitle: true })}
+            />
+          </label>
+          <div className="subtitle-preview" style={{ fontSize: `${props.profile.subtitleScale / 100}rem` }}>
+            杩欐槸涓€娈靛瓧骞曢瑙堬紝鐢ㄦ埛鎵嬪姩璁剧疆鍚庝笉浼氳骞撮緞瑙勫垯瑕嗙洊銆?          </div>
+        </Panel>
+        <Panel title="鏁版嵁绠＄悊">
+          <p>鐧诲綍鍚庢暟鎹細鍚屾淇濆瓨鍒拌处鍙凤紱娴忚鍣ㄦ湰鍦颁粛淇濈暀涓€浠界紦瀛橈紝渚夸簬棣栨瀵煎叆鍜屽埛鏂版仮澶嶃€?/p>
+          <button className="danger" onClick={props.resetData}>鎭㈠绀轰緥鏁版嵁</button>
+        </Panel>
+      </section>
+    </div>
+  );
+}
+
+function MovieGrid(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  editMovie?: (movie: Movie) => void;
+  deleteMovie?: (id: string) => void;
+  detailed?: boolean;
+}) {
+  if (!props.rows.length) return <EmptyState text="鏆傛棤褰辩墖锛屽厛鏂板涓€閮ㄥ惂銆? />;
+  return (
+    <div className="movie-grid">
+      {props.rows.map(({ movie, record }) => (
+        <article className="movie-card" key={movie.id}>
+          <div className="movie-top">
+            <span className="poster">{movie.poster}</span>
+            <div>
+              <h3>{movie.title}</h3>
+              <p>{movie.alias || movie.type} 路 {movie.year} 路 {movie.durationMinutes} 鍒嗛挓</p>
+            </div>
+          </div>
+          <p>{movie.summary || "鏆傛棤绠€浠?}</p>
+          <div className="chips">
+            {movie.genres.map((genre) => <span className="chip" key={genre}>{genre}</span>)}
+          </div>
+          <div className="platforms">
+            {movie.platforms.length
+              ? movie.platforms.map((platform) => (
+                  <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                    {platform.platformName} 路 {platform.watchType} 路 {platform.lastCheckedAt}
+                  </a>
+                ))
+              : <span>鏆傛棤鐗囨簮锛屽彲璁剧疆鎻愰啋</span>}
+          </div>
+          <div className="record-grid">
+            <label>
+              鐘舵€?              <select value={record?.status ?? "鎯崇湅"} onChange={(event) => props.updateRecord(movie.id, { status: event.target.value as MovieStatus })}>
+                {["鎯崇湅", "鍦ㄧ湅", "宸茬湅", "鏆傚仠", "寮冪湅"].map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              浼樺厛绾?              <select value={record?.priority ?? "鏈夋椂闂寸湅"} onChange={(event) => props.updateRecord(movie.id, { priority: event.target.value as Priority })}>
+                {["寰堟兂鐪?, "鏈夋椂闂寸湅", "闅忕紭鐪?].map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            {props.detailed && (
+              <>
+                <label>
+                  鐪嬪畬璇勫垎
+                  <RatingControl
+                    value={normalizeRating(record?.rating ?? 0)}
+                    onChange={(rating) => props.updateRecord(movie.id, { rating, status: rating > 0 ? "宸茬湅" : record?.status })}
+                  />
+                </label>
+                <label>
+                  杩涘害
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={record?.progress ?? 0}
+                    onChange={(event) => props.updateRecord(movie.id, { progress: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  瑙傜湅鏃ユ湡
+                  <input
+                    type="date"
+                    value={record?.watchDate ?? ""}
+                    onChange={(event) => props.updateRecord(movie.id, { watchDate: event.target.value })}
+                  />
+                </label>
+                <label>
+                  鐗囧崟
+                  <input
+                    value={record?.lists.join("銆?) ?? ""}
+                    onChange={(event) => props.updateRecord(movie.id, { lists: splitText(event.target.value) })}
+                  />
+                </label>
+                <label className="wide">
+                  鐭瘎
+                  <textarea
+                    value={record?.review ?? ""}
+                    onChange={(event) => props.updateRecord(movie.id, { review: event.target.value })}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          {props.detailed && (
+            <div className="actions">
+              {props.editMovie && <button onClick={() => props.editMovie?.(movie)}>缂栬緫褰辩墖</button>}
+              {props.deleteMovie && <button className="danger" onClick={() => props.deleteMovie?.(movie.id)}>鍒犻櫎</button>}
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function recommend(
+  rows: { movie: Movie; record?: UserMovieRecord }[],
+  picker: PickerInput,
+  profile: UserProfile,
+  skippedIds: string[],
+) {
+  return rows
+    .filter(({ movie, record }) => record?.status !== "寮冪湅" && !skippedIds.includes(movie.id))
+    .map(({ movie, record }) => {
+      let score = 0;
+      const reasons: string[] = [];
+      const timeDiff = Math.abs(movie.durationMinutes - picker.availableMinutes);
+      if (movie.durationMinutes <= picker.availableMinutes + 15) {
+        score += Math.max(0, 25 - Math.floor(timeDiff / 8));
+        reasons.push(`鐗囬暱 ${movie.durationMinutes} 鍒嗛挓锛岃创杩戜綘褰撳墠 ${picker.availableMinutes} 鍒嗛挓鐨勫彲鐢ㄦ椂闂淬€俙);
+      }
+      if (movie.moods.includes(picker.mood)) {
+        score += 20;
+        reasons.push(`鍐呭姘旇川鍖归厤鈥?{picker.mood}鈥濆績鎯呫€俙);
+      }
+      const genreMatches = movie.genres.filter((genre) => picker.genres.includes(genre));
+      if (genreMatches.length) {
+        score += Math.min(20, genreMatches.length * 8);
+        reasons.push(`绫诲瀷鍛戒腑锛?{genreMatches.join("銆?)}銆俙);
+      }
+      const platformMatches = movie.platforms.filter((platform) => picker.platforms.includes(platform.platformName));
+      if (platformMatches.length) {
+        score += 15;
+        reasons.push(`鍙湪 ${platformMatches.map((item) => item.platformName).join("銆?)} 瑙傜湅銆俙);
+      }
+      if (movie.companions.includes(picker.companion)) {
+        score += 10;
+        reasons.push(`閫傚悎${picker.companion}瑙傜湅銆俙);
+      }
+      if (record?.priority === "寰堟兂鐪?) {
+        score += 5;
+        reasons.push("浣犱箣鍓嶆爣璁拌繃鈥滃緢鎯崇湅鈥濄€?);
+      }
+      if (record && daysSince(record.createdAt) > 14) {
+        score += 5;
+        reasons.push("宸茬粡鍦ㄧ墖鍗曢噷绛夊緟浜嗕竴娈垫椂闂淬€?);
+      }
+      if (!genreMatches.length && profile.favoriteGenres.some((genre) => movie.genres.includes(genre))) {
+        score += 4;
+        reasons.push("绗﹀悎浣犵殑甯哥湅绫诲瀷鍋忓ソ銆?);
+      }
+      return { movie, record, score, reasons: reasons.length ? reasons : ["缁煎悎鐗囬暱銆佺被鍨嬪拰骞冲彴鍚庣粰鍑虹殑鍊欓€夈€?] };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
+function calcGenreScores(rows: { movie: Movie; record?: UserMovieRecord }[], profile: UserProfile) {
+  const scores: Record<string, number> = {};
+  for (const genre of profile.favoriteGenres) scores[genre] = (scores[genre] ?? 0) + 6;
+  for (const { movie, record } of rows) {
+    for (const genre of movie.genres) {
+      if (!scores[genre]) scores[genre] = 0;
+      if (record?.status === "宸茬湅") scores[genre] += 8;
+      if (record?.status === "鎯崇湅") scores[genre] += 3;
+      if (normalizeRating(record?.rating ?? 0) >= 4) scores[genre] += 5;
+      if (record) scores[genre] += 2;
+    }
+  }
+  return Object.entries(scores)
+    .map(([genre, score]) => ({ genre, score }))
+    .sort((a, b) => b.score - a.score);
+}
+
+function calcSummary(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  const watched = rows.filter(({ record }) => record?.status === "宸茬湅" || (record?.rating ?? 0) > 0);
+  const ratings = watched.map(({ record }) => normalizeRating(record?.rating ?? 0)).filter(Boolean);
+  const platformMap: Record<string, number> = {};
+  for (const { record } of watched) {
+    const platform = record?.watchPlatform || "鏈褰曞钩鍙?;
+    platformMap[platform] = (platformMap[platform] ?? 0) + 1;
+  }
+  return {
+    watchedCount: watched.length,
+    totalMinutes: watched.reduce((sum, { movie }) => sum + movie.durationMinutes, 0),
+    averageRating: ratings.length ? (ratings.reduce((sum, item) => sum + item, 0) / ratings.length).toFixed(1) : "",
+    rewatchCount: rows.filter(({ record }) => record?.tags.includes("浜屽埛")).length,
+    platformMap,
+  };
+}
+
+function calcRatingRank(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  return rows
+    .map(({ movie, record }) => ({
+      movie,
+      value: normalizeRating(record?.rating ?? 0),
+    }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value || b.movie.year - a.movie.year)
+    .slice(0, 5);
+}
+
+function calcSearchHeatRank(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  return rows
+    .map(({ movie, record }, index) => {
+      const recency = Math.max(0, movie.year - 2015);
+      const platformBoost = movie.platforms.length * 7;
+      const typeBoost = movie.type === "鐭墽" ? 30 : movie.type === "缁艰壓" ? 24 : movie.type === "鍓ч泦" ? 16 : 8;
+      const statusBoost = record?.status === "鍦ㄧ湅" ? 22 : record?.status === "鎯崇湅" ? 12 : record?.status === "宸茬湅" ? 8 : 0;
+      const ratingBoost = normalizeRating(record?.rating ?? 0) * 5;
+      return {
+        movie,
+        value: recency + platformBoost + typeBoost + statusBoost + ratingBoost + (index % 9),
+      };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}
+
+function calcTagHeatRank(rows: { movie: Movie; record?: UserMovieRecord }[], tags: string[]) {
+  return rows
+    .filter(({ movie }) => tags.some((tag) => movie.genres.includes(tag) || movie.type === tag))
+    .map((row, index) => ({
+      movie: row.movie,
+      value: calcHeatValue(row, index),
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+}
+
+function calcShortDramaRank(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  return rows
+    .filter(({ movie }) => movie.type === "鐭墽" || movie.genres.includes("鐭墽"))
+    .map((row, index) => ({
+      movie: row.movie,
+      value: calcHeatValue(row, index) + 20,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+}
+
+function calcYingjiRank(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  return rows
+    .map(({ movie, record }, index) => {
+      const rating = normalizeRating(record?.rating ?? 0);
+      const status = record?.status === "宸茬湅" ? 24 : record?.status === "鍦ㄧ湅" ? 18 : record?.status === "鎯崇湅" ? 10 : 0;
+      const progress = Math.round((record?.progress ?? 0) / 5);
+      const listBoost = (record?.lists.length ?? 0) * 5;
+      return {
+        movie,
+        value: rating * 18 + status + progress + listBoost + (index % 7),
+      };
+    })
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+}
+
+function calcCategoryRanks(rows: { movie: Movie; record?: UserMovieRecord }[]) {
+  const labels = ["鐭墽", "鍙よ", "閮藉競", "鎮枒", "鐖辨儏", "鍠滃墽", "缁艰壓", "绾綍鐗?, "鍔ㄧ敾"];
+  return labels
+    .map((label) => ({
+      label,
+      items: calcTagHeatRank(rows, [label]),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function calcHeatValue(row: { movie: Movie; record?: UserMovieRecord }, index: number) {
+  const recency = Math.max(0, row.movie.year - 2015);
+  const platformBoost = row.movie.platforms.length * 7;
+  const typeBoost = row.movie.type === "鐭墽" ? 30 : row.movie.type === "缁艰壓" ? 24 : row.movie.type === "鍓ч泦" ? 16 : 8;
+  const statusBoost = row.record?.status === "鍦ㄧ湅" ? 22 : row.record?.status === "鎯崇湅" ? 12 : row.record?.status === "宸茬湅" ? 8 : 0;
+  const ratingBoost = normalizeRating(row.record?.rating ?? 0) * 5;
+  return recency + platformBoost + typeBoost + statusBoost + ratingBoost + (index % 9);
+}
+
+function normalizeRating(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const normalized = value > 5 ? Math.round(value / 2) : Math.round(value);
+  return Math.min(5, Math.max(1, normalized));
+}
+
+function inferMoods(genres: string[]): Mood[] {
+  const moods = new Set<Mood>();
+  if (genres.some((genre) => ["鍠滃墽", "鍔ㄧ敾", "鍐掗櫓", "缁艰壓", "鐢滃疇", "鐭墽"].includes(genre))) moods.add("杞绘澗");
+  if (genres.some((genre) => ["鍔ㄤ綔", "鐘姜", "鎮枒", "閫嗚", "鐖藉墽"].includes(genre))) moods.add("鍒烘縺");
+  if (genres.some((genre) => ["娌绘剤", "瀹跺涵", "绾綍鐗?].includes(genre))) moods.add("娌绘剤");
+  if (genres.some((genre) => ["绉戝够", "鎮枒"].includes(genre))) moods.add("鐑ц剳");
+  return moods.size ? [...moods] : ["杞绘澗"];
+}
+
+function inferCompanions(genres: string[], type: ContentType): Companion[] {
+  const companions = new Set<Companion>(["鐙嚜"]);
+  if (genres.some((genre) => ["鐖辨儏", "娌绘剤"].includes(genre))) companions.add("鎯呬荆");
+  if (genres.some((genre) => ["鍠滃墽", "鍔ㄤ綔", "绉戝够", "鎮枒"].includes(genre))) companions.add("鏈嬪弸");
+  if (genres.some((genre) => ["鍔ㄧ敾", "瀹跺涵", "绾綍鐗?, "缁艰壓"].includes(genre)) || type === "鍔ㄦ极") companions.add("瀹跺涵");
+  if (type === "鐭墽") companions.add("鏈嬪弸");
+  return [...companions];
+}
+
+function isSenior(ageRange: string) {
+  return ["55-64", "65浠ヤ笂"].includes(ageRange);
+}
+
+function daysSince(date: string) {
+  return Math.floor((Date.now() - new Date(date).getTime()) / 86400000);
+}
+
+function secondsLabel(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function timeLabel(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <article className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function RankList({
+  title,
+  items,
+  valueSuffix,
+  onSelect,
+}: {
+  title: string;
+  items: { movie: Movie; value: number }[];
+  valueSuffix: string;
+  onSelect?: (movie: Movie) => void;
+}) {
+  return (
+    <section className="rank-card">
+      <h2>{title}</h2>
+      <div className="rank-list">
+        {items.length ? items.map((item, index) => (
+          <button className="rank-item" key={item.movie.id} onClick={() => onSelect?.(item.movie)}>
+            <b>{index + 1}</b>
+            <span className="poster rank-poster">{item.movie.poster}</span>
+            <div>
+              <strong>{item.movie.title}</strong>
+              <span>{item.movie.type} 路 {item.movie.year}</span>
+            </div>
+            <em>{item.value}{valueSuffix}</em>
+          </button>
+        )) : <p>鏆傛棤鏁版嵁</p>}
+      </div>
+    </section>
+  );
+}
+
+function RatingControl({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <div className="rating-control" aria-label="瑙傚奖璇勫垎">
+      <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+        <option value={0}>鏈瘎鍒?/option>
+        {[1, 2, 3, 4, 5].map((score) => (
+          <option value={score} key={score}>{score} 鍒?/option>
+        ))}
+      </select>
+      <span aria-hidden="true">{"鈽呪槄鈽呪槄鈽?.slice(0, value)}{"鈽嗏槅鈽嗏槅鈽?.slice(value)}</span>
+    </div>
+  );
+}
+
+function MovieDetailModal(props: {
+  row?: { movie: Movie; record?: UserMovieRecord };
+  close: () => void;
+  updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
+  startSoloWatch: (movie: Movie, startSeconds?: number) => void;
+  startWatchParty: (movie: Movie, startSeconds?: number) => void;
+}) {
+  if (!props.row) return null;
+  const { movie, record } = props.row;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${movie.title}璇︽儏`} onClick={props.close}>
+      <article className="movie-modal" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={props.close} aria-label="鍏抽棴璇︽儏">脳</button>
+        <div className="modal-head">
+          <span className="poster">{movie.poster}</span>
+          <div>
+            <p className="eyebrow">{movie.type} 路 {movie.year}</p>
+            <h1>{movie.title}</h1>
+            <p>{movie.alias || "鏆傛棤鍒悕"} 路 {movie.durationMinutes} 鍒嗛挓 路 {record?.status ?? "鏈敹钘?}</p>
+          </div>
+        </div>
+        <p>{movie.summary || "鏆傛棤绠€浠?}</p>
+        <div className="chips">
+          {movie.genres.map((genre) => <span className="chip strong" key={genre}>{genre}</span>)}
+        </div>
+        {!!movie.actors.length && <p>涓绘紨/鍢夊锛歿movie.actors.join("銆?)}</p>}
+        <div className="platform-tags">
+          {movie.platforms.length ? movie.platforms.map((platform) => (
+            <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+              {platform.platformName} 路 {platform.watchType}
+            </a>
+          )) : <span>鏆傛棤骞冲彴淇℃伅</span>}
+        </div>
+        <div className="modal-actions">
+          <RatingControl
+            value={normalizeRating(record?.rating ?? 0)}
+            onChange={(rating) => props.updateRecord(movie.id, { rating, status: rating > 0 ? "宸茬湅" : record?.status })}
+          />
+          <button onClick={() => props.updateRecord(movie.id, { status: "鍦ㄧ湅", progress: Math.max(record?.progress ?? 0, 10) })}>
+            鏍囪鍦ㄧ湅
+          </button>
+          <button onClick={() => props.startSoloWatch(movie, Math.floor(movie.durationMinutes * 60 * ((record?.progress ?? 0) / 100)))}>
+            鐩存帴瑙傜湅
+          </button>
+          <button className="primary" onClick={() => props.startWatchParty(movie)}>
+            閭€璇峰叡鐪?          </button>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="panel">
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function PageHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <header className="page-header">
+      <p className="eyebrow">CineList</p>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </header>
+  );
+}
+
+function Input({ label, value, onChange, required }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
+  return (
+    <label>
+      {label}
+      <input required={required} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function CheckboxGroup({ label, options, values, onChange }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void }) {
+  return (
+    <fieldset>
+      <legend>{label}</legend>
+      <div className="chips selectable">
+        {options.map((option) => (
+          <button
+            type="button"
+            className={values.includes(option) ? "chip selected" : "chip"}
+            key={option}
+            onClick={() => onChange(values.includes(option) ? values.filter((item) => item !== option) : [...values, option])}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function BarList({ items }: { items: { label: string; value: number }[] }) {
+  const max = Math.max(...items.map((item) => item.value), 1);
+  if (!items.length) return <EmptyState text="鏆傛棤缁熻鏁版嵁銆? />;
+  return (
+    <div className="bar-list">
+      {items.map((item) => (
+        <div className="bar-row" key={item.label}>
+          <span>{item.label}</span>
+          <div><i style={{ width: `${(item.value / max) * 100}%` }} /></div>
+          <b>{item.value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="empty">{text}</div>;
+}
+
+export default App;

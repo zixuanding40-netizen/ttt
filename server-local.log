@@ -1,0 +1,7 @@
+
+> cinelist-mvp@1.0.0 server
+> node server/index.js
+
+◇ injected env (10) from  // tip: ◈ secrets for agents [www.dotenvx.com]
+◇ injected env (0) from  // tip: ⌘ suppress logs { quiet: true }
+CineList API listening on http://127.0.0.1:3001
