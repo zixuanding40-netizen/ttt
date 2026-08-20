@@ -1,4 +1,4 @@
-const CACHE_NAME = "yingji-pwa-v20260820-mobile-watch-video-wide";
+const CACHE_NAME = "yingji-pwa-v20260820-watch-room-links-mobile";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",

@@ -3,7 +3,7 @@
   "short_name": "影迹",
   "description": "个人观影清单、快速选片、评价记录与观影总结。",
   "id": "/",
-  "start_url": "/?source=pwa&v=mobile-watch-video-wide-20260820",
+  "start_url": "/?source=pwa&v=watch-room-links-mobile-20260820",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],

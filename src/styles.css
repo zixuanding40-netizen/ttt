@@ -4981,6 +4981,19 @@ p {
     display: grid;
   }
 
+  .watch-video-pane .actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .watch-video-pane .segmented {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .watch-video-pane .segmented button {
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
   .watch-party-shell {
     min-height: auto;
   }
