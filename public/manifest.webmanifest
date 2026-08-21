@@ -2,18 +2,48 @@
   "name": "影迹 CineList",
   "short_name": "影迹",
   "description": "个人观影清单、快速选片、评价记录与观影总结。",
-  "start_url": "/?source=pwa",
+  "id": "/",
+  "start_url": "/?source=pwa&v=watch-room-links-mobile-20260820",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "portrait",
   "background_color": "#fff2f7",
   "theme_color": "#c2186a",
+  "categories": ["entertainment", "lifestyle"],
+  "lang": "zh-CN",
   "icons": [
     {
       "src": "/icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "快速选片",
+      "short_name": "选片",
+      "description": "按时间、心情和平台快速推荐影片。",
+      "url": "/?source=pwa&tab=picker"
+    },
+    {
+      "name": "我的片单",
+      "short_name": "片单",
+      "description": "查看收藏、进度和评价。",
+      "url": "/?source=pwa&tab=library"
     }
   ]
 }

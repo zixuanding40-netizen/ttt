@@ -1,9 +1,9 @@
-import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Tab = "home" | "library" | "picker" | "rankings" | "watch" | "party" | "discussion" | "summary" | "settings";
 type MovieStatus = "想看" | "在看" | "已看" | "暂停" | "弃看";
 type Priority = "很想看" | "有时间看" | "随缘看";
-type ContentType = "电影" | "剧集" | "动漫" | "纪录片" | "综艺" | "短剧";
+type ContentType = "电影" | "剧集" | "动漫" | "漫画" | "纪录片" | "综艺" | "短剧";
 type Mood = "轻松" | "刺激" | "治愈" | "烧脑";
 type Companion = "独自" | "情侣" | "朋友" | "家庭";
 
@@ -70,6 +70,7 @@ type AppState = {
   profile: UserProfile;
   discussions: DiscussionComment[];
   talentReviews: TalentReview[];
+  pet: PetState;
 };
 
 type MovieForm = {
@@ -152,6 +153,27 @@ type TalentReview = {
   createdAt: string;
 };
 
+type PetItemId = "fish" | "milk" | "comb" | "blanket" | "toy";
+type PetSpecies = "cat" | "dog";
+type PetAction = "idle" | "feed" | "petHead" | "strokeFur" | "groom" | "chin" | "love";
+
+type PetState = {
+  name: string;
+  species: PetSpecies;
+  coins: number;
+  intimacy: number;
+  hunger: number;
+  clean: number;
+  mood: number;
+  inventory: Record<PetItemId, number>;
+  lastDailyClaim: string;
+};
+
+type AssistantMessage = {
+  role: "assistant" | "user";
+  text: string;
+};
+
 type TalentReviewDraft = {
   movieId: string;
   title: string;
@@ -166,7 +188,35 @@ type WebSearchTarget = {
 };
 
 const STORAGE_KEY = "cinelist-mvp-state-v1";
+const AUTH_KEY = "cinelist-auth-v1";
+const GUEST_KEY = "cinelist-guest-mode-v1";
+const WATCH_ROOMS_KEY = "cinelist-watch-rooms-v1";
+const API_BASE = "/api";
 const today = new Date().toISOString().slice(0, 10);
+
+type AuthUser = {
+  id: string;
+  username: string;
+  displayName: string;
+};
+
+type AuthSession = {
+  token: string;
+  user: AuthUser;
+};
+
+type AuthMode = "login" | "register";
+
+const validTabs: Tab[] = ["home", "library", "picker", "rankings", "watch", "party", "discussion", "summary", "settings"];
+
+function initialTabFromUrl(): Tab {
+  try {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    return validTabs.includes(tab as Tab) ? (tab as Tab) : "home";
+  } catch {
+    return "home";
+  }
+}
 
 function makeId(prefix = "") {
   const randomId =
@@ -182,6 +232,7 @@ const genreOptions = [
   "科幻",
   "悬疑",
   "动画",
+  "漫画",
   "纪录片",
   "爱情",
   "动作",
@@ -202,6 +253,10 @@ const genreOptions = [
   "甜宠",
   "逆袭",
   "都市",
+  "校园",
+  "热血",
+  "国漫",
+  "番剧",
 ];
 
 const platformOptions = [
@@ -209,7 +264,11 @@ const platformOptions = [
   "爱奇艺",
   "优酷",
   "哔哩哔哩",
+  "哔哩哔哩漫画",
   "芒果TV",
+  "腾讯动漫",
+  "快看漫画",
+  "漫番漫画",
   "央视频",
   "红果短剧",
   "抖音短剧",
@@ -226,11 +285,17 @@ function platformSearchUrl(platformName: string, title: string) {
     爱奇艺: `https://so.iqiyi.com/so/q_${keyword}`,
     优酷: `https://so.youku.com/search_video?keyword=${keyword}`,
     哔哩哔哩: `https://search.bilibili.com/all?keyword=${keyword}`,
+    哔哩哔哩漫画: `https://manga.bilibili.com/search?keyword=${keyword}`,
     芒果TV: `https://so.mgtv.com/so?k=${keyword}`,
+    央视网: `https://tv.cctv.com/search/index.shtml?keyword=${keyword}`,
+    湖南卫视: `https://so.mgtv.com/so?k=${keyword}`,
+    腾讯动漫: `https://ac.qq.com/Search/index?keyword=${keyword}`,
+    快看漫画: `https://www.kuaikanmanhua.com/search?keyword=${keyword}`,
+    漫番漫画: `https://www.baidu.com/s?wd=${keyword}%20${encodeURIComponent("漫画")}`,
     央视频: `https://www.yangshipin.cn/search?keyword=${keyword}`,
     红果短剧: `https://www.baidu.com/s?wd=${keyword}%20${encodeURIComponent("红果短剧")}`,
     抖音短剧: `https://www.douyin.com/search/${keyword}?type=general`,
-    快手小剧场: `https://www.kuaishou.cn/theater/0`,
+    快手小剧场: `https://www.kuaishou.com/search/video?searchKey=${keyword}`,
     Netflix: `https://www.netflix.com/search?q=${keyword}`,
     "Disney+": `https://www.disneyplus.com/search?q=${keyword}`,
     "Apple TV+": `https://tv.apple.com/search?term=${keyword}`,
@@ -284,14 +349,7 @@ const firstEpisodeUrls: Record<string, string> = {
 function playableUrl(platform: PlatformAvailability, title: string) {
   const directUrl = firstEpisodeUrls[`${platform.platformName}|${title}`];
   if (directUrl) return directUrl;
-  const homePages = new Set([
-    "https://v.qq.com",
-    "https://www.iqiyi.com",
-    "https://www.disneyplus.com",
-    "https://www.bilibili.com",
-    "https://www.youku.com",
-  ]);
-  return homePages.has(platform.url.replace(/\/$/, "")) ? platformSearchUrl(platform.platformName, title) : platform.url;
+  return platformSearchUrl(platform.platformName, title);
 }
 
 const initialMovies: Movie[] = [
@@ -1430,6 +1488,120 @@ function buildExpandedMovies(): Movie[] {
   return generated;
 }
 
+const bangumiSearchTitles = [
+  "凡人修仙传",
+  "灵笼",
+  "时光代理人",
+  "凸变英雄X",
+  "中国奇谭",
+  "大理寺日志",
+  "雾山五行",
+  "伍六七",
+  "狐妖小红娘",
+  "一人之下",
+  "镇魂街",
+  "罗小黑战记",
+  "眷思量",
+  "少年歌行",
+  "斗罗大陆",
+  "完美世界",
+  "遮天",
+  "仙逆",
+  "吞噬星空",
+  "斗破苍穹",
+  "咒术回战",
+  "间谍过家家",
+  "孤独摇滚！",
+  "葬送的芙莉莲",
+  "排球少年！！",
+  "鬼灭之刃",
+  "进击的巨人",
+  "海贼王",
+  "名侦探柯南",
+  "夏目友人帐",
+  "摇曳露营",
+  "辉夜大小姐想让我告白",
+  "紫罗兰永恒花园",
+  "间谍教室",
+  "我推的孩子",
+  "药屋少女的呢喃",
+  "迷宫饭",
+  "怪兽8号",
+  "蓝色监狱",
+  "电锯人",
+];
+
+function buildBangumiSearchMovies(): Movie[] {
+  const platforms = ["腾讯视频", "爱奇艺", "优酷", "芒果TV", "哔哩哔哩"];
+  return bangumiSearchTitles.map((title, index) => createCatalogMovie({
+    id: `bangumi-${index + 1}`,
+    title,
+    type: "动漫",
+    year: 2020 + (index % 6),
+    genres: index % 3 === 0 ? ["番剧", "动画", "热血"] : index % 3 === 1 ? ["番剧", "动画", "奇幻"] : ["番剧", "动画", "治愈"],
+    actors: [],
+    platforms: [platforms[index % platforms.length], platforms[(index + 2) % platforms.length], "哔哩哔哩"],
+    index,
+  }));
+}
+
+const mangaBaseTitles = [
+  "航海热血物语",
+  "咒术学院",
+  "排球少年外传",
+  "篮球社的夏天",
+  "异世界便利店",
+  "少女心事笔记",
+  "都市灵能档案",
+  "古风探案录",
+  "机器人恋爱中",
+  "星海远征",
+  "猫街咖啡馆",
+  "校园告白练习",
+  "王牌社团",
+  "龙与魔法书",
+  "深夜食堂漫画版",
+  "山海异闻",
+  "银河快递员",
+  "邻桌同学太会演",
+  "侦探事务所",
+  "时间旅人的信",
+  "王城小厨娘",
+  "电竞少年团",
+  "花店与雨季",
+  "怪谈收集者",
+  "末日便利屋",
+];
+
+function buildMangaMovies(): Movie[] {
+  const genres = [
+    ["漫画", "热血", "冒险"],
+    ["漫画", "校园", "喜剧"],
+    ["漫画", "爱情", "治愈"],
+    ["漫画", "悬疑", "奇幻"],
+    ["漫画", "都市", "逆袭"],
+    ["漫画", "国漫", "动作"],
+  ];
+  const platforms = [
+    ["腾讯动漫", "哔哩哔哩漫画", "快看漫画"],
+    ["哔哩哔哩漫画", "腾讯动漫", "漫番漫画"],
+    ["快看漫画", "腾讯动漫", "哔哩哔哩漫画"],
+  ];
+  return Array.from({ length: 500 }, (_, index) => {
+    const title = `${mangaBaseTitles[index % mangaBaseTitles.length]} ${String(index + 1).padStart(3, "0")}`;
+    return createCatalogMovie({
+      id: `manga-${index + 1}`,
+      title,
+      type: "漫画",
+      year: 2015 + (index % 11),
+      genres: genres[index % genres.length],
+      actors: ["主角团", "人气角色"],
+      platforms: platforms[index % platforms.length],
+      index,
+    });
+  });
+}
+
 function createCatalogMovie(input: {
   id: string;
   title: string;
@@ -1449,7 +1621,7 @@ function createCatalogMovie(input: {
     genres: input.genres,
     durationMinutes: inferDuration(input.type, input.genres, input.index),
     poster: input.title.slice(0, 1),
-    summary: `来自扩充片库的${input.type}条目，提供腾讯视频、爱奇艺、优酷、哔哩哔哩等平台搜索入口；实际可播放状态以平台页面为准。`,
+    summary: `来自扩充片库的${input.type}条目，提供腾讯视频、爱奇艺、芒果TV、哔哩哔哩及漫画平台搜索入口；实际可观看状态以平台页面为准。`,
     directors: [],
     actors: input.actors,
     moods: inferMoods(input.genres),
@@ -1459,11 +1631,12 @@ function createCatalogMovie(input: {
 }
 
 function normalizeType(value: string): ContentType {
-  if (value === "剧集" || value === "动漫" || value === "纪录片" || value === "综艺" || value === "短剧") return value;
+  if (value === "剧集" || value === "动漫" || value === "漫画" || value === "纪录片" || value === "综艺" || value === "短剧") return value;
   return "电影";
 }
 
 function inferDuration(type: ContentType, genres: string[], index: number) {
+  if (type === "漫画") return 18 + (index % 28);
   if (type === "剧集") return 42 + (index % 12);
   if (type === "动漫") return 22 + (index % 8);
   if (type === "纪录片") return 30 + (index % 35);
@@ -1486,7 +1659,9 @@ function pickDefaultPlatforms(index: number) {
 }
 
 const expandedMovies = buildExpandedMovies();
-const seedMovies = [...initialMovies, ...expandedMovies];
+const bangumiSearchMovies = buildBangumiSearchMovies();
+const mangaMovies = buildMangaMovies();
+const seedMovies = [...initialMovies, ...expandedMovies, ...bangumiSearchMovies, ...mangaMovies];
 
 const initialRecords: Record<string, UserMovieRecord> = {
   "m-1": makeRecord("m-1", "想看", "很想看", ["烧脑周末"], 0),
@@ -1521,6 +1696,79 @@ const initialProfile: UserProfile = {
     useGender: false,
   },
 };
+
+const initialPetState: PetState = {
+  name: "影影",
+  species: "cat",
+  coins: 80,
+  intimacy: 12,
+  hunger: 76,
+  clean: 82,
+  mood: 70,
+  inventory: {
+    fish: 1,
+    milk: 1,
+    comb: 1,
+    blanket: 0,
+    toy: 0,
+  },
+  lastDailyClaim: "",
+};
+
+const petShopItems: { id: PetItemId; icon: string; name: string; price: number; effect: string }[] = [
+  { id: "fish", icon: "鱼", name: "小鱼干", price: 12, effect: "饱食 +18，爱心 +2" },
+  { id: "milk", icon: "奶", name: "温牛奶", price: 18, effect: "饱食 +12，心情 +8" },
+  { id: "comb", icon: "梳", name: "软软梳子", price: 25, effect: "清洁 +20，爱心 +4" },
+  { id: "blanket", icon: "毯", name: "粉色小毯", price: 36, effect: "心情 +15，爱心 +5" },
+  { id: "toy", icon: "球", name: "逗猫玩具", price: 28, effect: "心情 +18，爱心 +3" },
+];
+
+const petInteractionMap: Record<Exclude<PetAction, "idle" | "feed" | "love">, {
+  label: string;
+  catReply: string;
+  dogReply: string;
+  intimacy: number;
+  mood: number;
+  clean: number;
+  hunger: number;
+}> = {
+  petHead: {
+    label: "摸头",
+    catReply: "小猫把脑袋凑过来了，眼睛都眯起来了。",
+    dogReply: "小狗开心地仰起头，尾巴摇得停不下来。",
+    intimacy: 4,
+    mood: 6,
+    clean: 0,
+    hunger: -2,
+  },
+  strokeFur: {
+    label: "撸毛",
+    catReply: "小猫翘起尾巴转了个圈，贴过来蹭蹭你，爱心值变高啦。",
+    dogReply: "小狗趴得更近了，耳朵软软地贴下来。",
+    intimacy: 5,
+    mood: 8,
+    clean: -1,
+    hunger: -2,
+  },
+  groom: {
+    label: "梳毛",
+    catReply: "小猫抬起下巴，尾巴翘起来，眯着眼笑得很享受。",
+    dogReply: "小狗乖乖坐好，梳完以后神气地抬起胸口。",
+    intimacy: 6,
+    mood: 5,
+    clean: 18,
+    hunger: -3,
+  },
+  chin: {
+    label: "摸下巴",
+    catReply: "你轻轻摸了摸下巴，小猫眯着眼笑起来，呼噜声都变软了。",
+    dogReply: "你挠了挠下巴，小狗舒服地仰着脸，还往你手心里靠。",
+    intimacy: 5,
+    mood: 7,
+    clean: 0,
+    hunger: -2,
+  },
+} as const;
 
 const initialDiscussions: DiscussionComment[] = [
   {
@@ -1604,6 +1852,7 @@ function createInitialState(): AppState {
     profile: initialProfile,
     discussions: initialDiscussions,
     talentReviews: initialTalentReviews,
+    pet: initialPetState,
   };
 }
 
@@ -1612,16 +1861,67 @@ function loadState(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw) as AppState;
-      return {
-        movies: mergeMovies(parsed.movies),
-        records: normalizeRecords({ ...initialRecords, ...(parsed.records ?? {}) }),
-        profile: { ...initialProfile, ...parsed.profile },
-        discussions: Array.isArray(parsed.discussions) ? parsed.discussions : initialDiscussions,
-        talentReviews: Array.isArray(parsed.talentReviews) ? parsed.talentReviews : initialTalentReviews,
-      };
+    return normalizeState(parsed);
   } catch {
     return createInitialState();
   }
+}
+
+function loadAuth(): AuthSession | null {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
+  } catch {
+    localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
+function normalizeState(value: unknown): AppState {
+  const parsed = value as Partial<AppState> | null | undefined;
+  return {
+    movies: mergeMovies(parsed?.movies),
+    records: normalizeRecords({ ...initialRecords, ...(parsed?.records ?? {}) }),
+    profile: { ...initialProfile, ...(parsed?.profile ?? {}) },
+    discussions: Array.isArray(parsed?.discussions) ? parsed.discussions : initialDiscussions,
+    talentReviews: Array.isArray(parsed?.talentReviews) ? parsed.talentReviews : initialTalentReviews,
+    pet: normalizePetState(parsed?.pet),
+  };
+}
+
+function normalizePetState(pet: Partial<PetState> | undefined): PetState {
+  return {
+    ...initialPetState,
+    ...(pet ?? {}),
+    species: pet?.species === "dog" ? "dog" : "cat",
+    inventory: {
+      ...initialPetState.inventory,
+      ...(pet?.inventory ?? {}),
+    },
+  };
+}
+
+async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error ?? "请求失败，请稍后重试。");
+  }
+  return payload as T;
+}
+
+async function saveRemoteState(token: string, state: AppState) {
+  await apiRequest<{ ok: true }>("/state", {
+    method: "PUT",
+    body: JSON.stringify({ state }),
+  }, token);
 }
 
 function normalizeRecords(records: Record<string, UserMovieRecord>) {
@@ -1647,6 +1947,10 @@ function splitText(value: string) {
     .split(/[,，、\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function clampStat(value: number) {
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 async function copyText(value: string) {
@@ -1675,7 +1979,17 @@ async function copyText(value: string) {
 
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
-  const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [auth, setAuth] = useState<AuthSession | null>(() => loadAuth());
+  const [guestMode, setGuestMode] = useState(() => localStorage.getItem(GUEST_KEY) === "true");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [authForm, setAuthForm] = useState({ username: "", password: "", displayName: "" });
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [stateReady, setStateReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("未登录");
+  const [activeTab, setActiveTab] = useState<Tab>(() => initialTabFromUrl());
+  const [tabHistory, setTabHistory] = useState<Tab[]>([]);
+  const [pullRefresh, setPullRefresh] = useState({ pulling: false, ready: false, distance: 0 });
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MovieStatus | "全部">("全部");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1684,6 +1998,16 @@ function App() {
   const [selectedTalentReviewId, setSelectedTalentReviewId] = useState<string | null>(null);
   const [watchState, setWatchState] = useState<{ movieId: string; positionSeconds: number; playing: boolean } | null>(null);
   const [guideMood, setGuideMood] = useState(0);
+  const [petAction, setPetAction] = useState<PetAction>("idle");
+  const [scrollStage, setScrollStage] = useState<"top" | "scrolled" | "deep">("top");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
+    { role: "assistant", text: "我在右下角待命啦。想找片、问怎么一起看，或者随便聊两句都可以。" },
+  ]);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [installHelpVisible, setInstallHelpVisible] = useState(false);
+  const [installHintHidden, setInstallHintHidden] = useState(() => localStorage.getItem("yingji-install-hint-hidden") === "true");
   const [form, setForm] = useState<MovieForm>(emptyForm());
   const [chatInput, setChatInput] = useState("");
   const [roomDraft, setRoomDraft] = useState<WatchRoomDraft>(() => ({
@@ -1705,12 +2029,233 @@ function App() {
     companion: "独自",
     platforms: state.profile.commonPlatforms,
     genres: state.profile.favoriteGenres,
-    contentTypes: ["电影", "剧集", "动漫", "纪录片", "综艺", "短剧"],
+    contentTypes: ["电影", "剧集", "动漫", "漫画", "纪录片", "综艺", "短剧"],
   });
+
+  function goTab(tab: Tab, options: { replace?: boolean; scrollTop?: boolean } = {}) {
+    if (tab === activeTab) {
+      if (options.scrollTop) window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setTabHistory((current) => (options.replace ? current : [...current.slice(-12), activeTab]));
+    setActiveTab(tab);
+    if (options.scrollTop ?? true) {
+      window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+    }
+  }
+
+  useEffect(() => {
+    const roomId = new URLSearchParams(window.location.search).get("room");
+    if (roomId) joinWatchRoom(window.location.href);
+  }, []);
+
+  function goBack() {
+    const previous = tabHistory.at(-1);
+    if (previous) {
+      setTabHistory((current) => current.slice(0, -1));
+      setActiveTab(previous);
+      window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+      return;
+    }
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    if (activeTab !== "home") {
+      setActiveTab("home");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function refreshLatestYingji() {
+    setPullRefresh({ pulling: true, ready: true, distance: 76 });
+    try {
+      const registrations = await navigator.serviceWorker?.getRegistrations?.();
+      await Promise.all((registrations ?? []).map((registration) => registration.update()));
+    } finally {
+      const refreshUrl = new URL(window.location.href);
+      refreshUrl.searchParams.set("v", Date.now().toString());
+      window.location.replace(refreshUrl.toString());
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
+
+  useEffect(() => {
+    if (petAction === "idle") return;
+    const timer = window.setTimeout(() => setPetAction("idle"), 1400);
+    return () => window.clearTimeout(timer);
+  }, [petAction]);
+
+  useEffect(() => {
+    let startY = 0;
+    let tracking = false;
+
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest("input, textarea, select, button, a"));
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (window.scrollY > 0 || isEditableTarget(event.target)) {
+        tracking = false;
+        return;
+      }
+      startY = event.touches[0]?.clientY ?? 0;
+      tracking = true;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!tracking) return;
+      const currentY = event.touches[0]?.clientY ?? startY;
+      const distance = Math.max(0, currentY - startY);
+      if (distance < 8) return;
+      event.preventDefault();
+      const easedDistance = Math.min(96, Math.round(distance * 0.48));
+      setPullRefresh({
+        pulling: true,
+        ready: easedDistance >= 62,
+        distance: easedDistance,
+      });
+    };
+
+    const handleTouchEnd = () => {
+      if (!tracking) return;
+      tracking = false;
+      setPullRefresh((current) => {
+        if (current.ready) {
+          void refreshLatestYingji();
+          return { pulling: true, ready: true, distance: 76 };
+        }
+        return { pulling: false, ready: false, distance: 0 };
+      });
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd);
+    window.addEventListener("touchcancel", handleTouchEnd);
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    const updateScrollStage = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        setScrollStage(y > 520 ? "deep" : y > 80 ? "scrolled" : "top");
+      });
+    };
+    updateScrollStage();
+    window.addEventListener("scroll", updateScrollStage, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updateScrollStage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (auth) {
+      localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+    } else {
+      localStorage.removeItem(AUTH_KEY);
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (guestMode) {
+      localStorage.setItem(GUEST_KEY, "true");
+    } else {
+      localStorage.removeItem(GUEST_KEY);
+    }
+  }, [guestMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!auth?.token) {
+      setStateReady(guestMode);
+      setSyncStatus(guestMode ? "游客模式，仅本机保存" : "未登录");
+      return;
+    }
+
+    setSyncStatus("正在读取账号数据...");
+    apiRequest<{ state: AppState | null }>("/state", {}, auth.token)
+      .then(async ({ state: remoteState }) => {
+        if (cancelled) return;
+        if (remoteState) {
+          setState(normalizeState(remoteState));
+          setSyncStatus("账号数据已加载");
+        } else {
+          await saveRemoteState(auth.token, state);
+          if (!cancelled) setSyncStatus("已把本机数据导入账号");
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) {
+          setAuthError(error.message);
+          setAuth(null);
+          setSyncStatus("登录已失效");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStateReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.token, guestMode]);
+
+  useEffect(() => {
+    if (!auth?.token || !stateReady) return;
+    setSyncStatus("正在保存...");
+    const timer = window.setTimeout(() => {
+      saveRemoteState(auth.token, state)
+        .then(() => setSyncStatus("已保存到账号"))
+        .catch((error: Error) => setSyncStatus(error.message));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [auth?.token, state, stateReady]);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+      setInstallHintHidden(false);
+    };
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+  }, []);
+
+  const isStandalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const isIosDevice = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+
+  async function installPwa() {
+    if (installPrompt?.prompt) {
+      await installPrompt.prompt();
+      setInstallPrompt(null);
+      setInstallHelpVisible(false);
+      return;
+    }
+    setInstallHelpVisible(true);
+    setInstallHintHidden(false);
+  }
+
+  function hideInstallHint() {
+    setInstallHintHidden(true);
+    setInstallHelpVisible(false);
+    localStorage.setItem("yingji-install-hint-hidden", "true");
+  }
 
   useEffect(() => {
     if (!("BroadcastChannel" in window)) return;
@@ -1835,7 +2380,7 @@ function App() {
     });
     setEditingId(null);
     setForm(emptyForm());
-    setActiveTab("library");
+    goTab("library");
   }
 
   function editMovie(movie: Movie) {
@@ -1853,7 +2398,7 @@ function App() {
       actors: movie.actors.join("、"),
       platforms: movie.platforms.map((item) => item.platformName).join("、"),
     });
-    setActiveTab("library");
+    goTab("library");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1931,7 +2476,7 @@ function App() {
       videoUrl: "",
       insight: "",
     });
-    setActiveTab("home");
+    goTab("home");
   }
 
   function deleteTalentReview(reviewId: string) {
@@ -1950,7 +2495,7 @@ function App() {
     }));
   }
 
-  function createWatchRoom(movieId = roomDraft.movieId, startSeconds = 0) {
+  function createWatchRoom(movieId = roomDraft.movieId, startSeconds = 0, status: PlaybackStatus = "已暂停") {
     const movie = state.movies.find((item) => item.id === movieId) ?? draftMovie;
     if (!movie) return;
     const platformName =
@@ -1959,10 +2504,16 @@ function App() {
       movie.platforms[0]?.platformName ||
       platformOptions[0];
     const roomId = makeId("room-").slice(0, 13);
-    const inviteLink = `${window.location.origin}${window.location.pathname}#watch=${roomId}`;
+    const inviteUrl = new URL(window.location.pathname, window.location.origin);
+    inviteUrl.searchParams.set("tab", "party");
+    inviteUrl.searchParams.set("room", roomId);
+    inviteUrl.searchParams.set("movie", movie.id);
+    inviteUrl.searchParams.set("platform", platformName);
+    inviteUrl.searchParams.set("host", roomDraft.hostName.trim() || "我");
+    const inviteLink = inviteUrl.toString();
     const hostName = roomDraft.hostName.trim() || "我";
     const friendName = roomDraft.friendName.trim() || "好友";
-    setWatchRoom({
+    const room: WatchRoom = {
       id: roomId,
       movieId: movie.id,
       platformName,
@@ -1970,7 +2521,7 @@ function App() {
       inviteLink,
       members: [hostName, friendName],
       playback: {
-        status: "已暂停",
+        status,
         positionSeconds: startSeconds,
         playbackRate: 1,
         updatedAt: new Date().toISOString(),
@@ -1980,13 +2531,20 @@ function App() {
         {
           id: makeId(),
           author: "系统",
-          text: `已为《${movie.title}》创建共看房间。正式上线后，这个链接会把好友带入同一个实时房间。`,
+          text: `已为《${movie.title}》创建共看房间。把邀请链接发给好友，对方打开即可进入。`,
           createdAt: new Date().toISOString(),
         },
       ],
-    });
+    };
+    setWatchRoom(room);
+    try {
+      const rooms = JSON.parse(localStorage.getItem(WATCH_ROOMS_KEY) || "{}") as Record<string, WatchRoom>;
+      localStorage.setItem(WATCH_ROOMS_KEY, JSON.stringify({ ...rooms, [roomId]: room }));
+    } catch {
+      // Invite URL still carries the details needed to enter the room.
+    }
     setRoomDraft((current) => ({ ...current, movieId: movie.id, platformName }));
-    setActiveTab("party");
+    goTab("party");
   }
 
   function updatePlayback(patch: Partial<PlaybackState>, updatedBy = roomDraft.hostName.trim() || "我") {
@@ -2002,6 +2560,81 @@ function App() {
         },
       };
     });
+  }
+
+  function joinWatchRoom(roomValue: string) {
+    const value = roomValue.trim();
+    if (!value) return false;
+    let params = new URLSearchParams();
+    let roomId = value.replace(/^#/, "");
+    try {
+      const url = new URL(value, window.location.origin);
+      params = url.searchParams;
+      roomId = params.get("room") || roomId;
+    } catch {
+      roomId = value;
+    }
+    roomId = roomId.replace(/^room[=:]/i, "").trim();
+    let savedRoom: WatchRoom | null = null;
+    try {
+      const rooms = JSON.parse(localStorage.getItem(WATCH_ROOMS_KEY) || "{}") as Record<string, WatchRoom>;
+      savedRoom = rooms[roomId] || null;
+    } catch {
+      savedRoom = null;
+    }
+    const movieId = params.get("movie") || savedRoom?.movieId || roomDraft.movieId || state.movies[0]?.id;
+    const movie = state.movies.find((item) => item.id === movieId) || state.movies[0];
+    if (!movie || !roomId) return false;
+    const platformName = params.get("platform") || savedRoom?.platformName || movie.platforms[0]?.platformName || platformOptions[0];
+    const hostName = params.get("host") || savedRoom?.hostName || "房主";
+    const inviteUrl = new URL(window.location.pathname, window.location.origin);
+    inviteUrl.searchParams.set("tab", "party");
+    inviteUrl.searchParams.set("room", roomId);
+    inviteUrl.searchParams.set("movie", movie.id);
+    inviteUrl.searchParams.set("platform", platformName);
+    inviteUrl.searchParams.set("host", hostName);
+    const room: WatchRoom = savedRoom || {
+      id: roomId, movieId: movie.id, platformName, hostName, inviteLink: inviteUrl.toString(),
+      members: [hostName, roomDraft.hostName.trim() || "我"],
+      playback: { status: "已暂停", positionSeconds: 0, playbackRate: 1, updatedAt: new Date().toISOString(), updatedBy: hostName },
+      messages: [{ id: makeId(), author: "系统", text: `已通过邀请链接进入《${movie.title}》共看房间。`, createdAt: new Date().toISOString() }],
+    };
+    setWatchRoom({ ...room, inviteLink: inviteUrl.toString() });
+    setRoomDraft((current) => ({ ...current, movieId: movie.id, platformName }));
+    window.history.replaceState(null, "", inviteUrl);
+    goTab("party", { replace: true });
+    return true;
+  }
+
+  function updateWatchRoomSelection(movieId: string, platformName: string, status: PlaybackState["status"] = "已暂停") {
+    const movie = state.movies.find((item) => item.id === movieId);
+    if (!movie) return;
+    const hostName = roomDraft.hostName.trim() || watchRoom?.hostName || "我";
+    setWatchRoom((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        movieId,
+        platformName,
+        playback: {
+          ...current.playback,
+          status,
+          positionSeconds: 0,
+          updatedAt: new Date().toISOString(),
+          updatedBy: hostName,
+        },
+        messages: [
+          ...current.messages,
+          {
+            id: makeId(),
+            author: "系统",
+            text: `已切换到《${movie.title}》，平台：${platformName}。房间成员会按这个影片继续一起看。`,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+    setRoomDraft((current) => ({ ...current, movieId, platformName }));
   }
 
   function sendRoomMessage(event: FormEvent) {
@@ -2046,7 +2679,7 @@ function App() {
       progress: Math.min(99, Math.round((startSeconds / Math.max(movie.durationMinutes * 60, 1)) * 100)),
       watchPlatform: movie.platforms[0]?.platformName ?? "",
     });
-    setActiveTab("watch");
+    goTab("watch");
   }
 
   function toggleArrayField<T extends string>(
@@ -2055,6 +2688,216 @@ function App() {
     update: (next: T[]) => void,
   ) {
     update(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const payload = await apiRequest<{ token: string; user: AuthUser }>(
+        authMode === "login" ? "/auth/login" : "/auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify(authForm),
+        },
+      );
+      setGuestMode(false);
+      setAuth({ token: payload.token, user: payload.user });
+      setAuthForm({ username: "", password: "", displayName: "" });
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "登录失败，请稍后重试。");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function logout() {
+    setAuth(null);
+    setGuestMode(false);
+    setStateReady(false);
+    setAuthError("");
+  }
+
+  function enterGuestMode() {
+    setGuestMode(true);
+    setStateReady(true);
+    setAuthError("");
+    setSyncStatus("游客模式，仅本机保存");
+  }
+
+  function leaveGuestMode() {
+    setGuestMode(false);
+    setStateReady(false);
+    setAuthError("");
+  }
+
+  const petSpecies = state.pet.species;
+  const petLabel = petSpecies === "cat" ? "小猫" : "小狗";
+  const petAsset = petSpecies === "cat" ? "/mascots/cat-3d.png" : "/mascots/dog-3d.png";
+  const petLevel = Math.min(5, Math.floor(state.pet.intimacy / 25) + 1);
+  const petNextLevelProgress = petLevel >= 5 ? 100 : Math.round(((state.pet.intimacy % 25) / 25) * 100);
+  const petCloseness =
+    state.pet.intimacy >= 80
+      ? "超级亲密"
+      : state.pet.intimacy >= 45
+        ? "熟悉亲近"
+        : "慢慢熟悉";
+
+  function makeAssistantReply(message: string) {
+    const text = message.trim().toLowerCase();
+    const voicePrefix =
+      state.pet.intimacy >= 80
+        ? `${state.pet.name}贴贴地说：`
+        : state.pet.intimacy >= 45
+          ? `${state.pet.name}认真地说：`
+          : `${state.pet.name}小声说：`;
+    const softTail =
+      state.pet.intimacy >= 80
+        ? petSpecies === "cat" ? "我会陪你一起慢慢选，喵呜。" : "我会陪你一起慢慢选，汪呜。"
+        : state.pet.intimacy >= 45
+          ? "我已经有点懂你的口味啦。"
+          : "我们再多互动几次，我会越来越懂你。";
+    if (!text) return `${voicePrefix}你还没说内容呢，我先乖乖等一下。`;
+    if (text.includes("登录") || text.includes("账号") || text.includes("注册")) {
+      return `${voicePrefix}登录在左侧底部或手机顶部右侧。登录后片单可以同步；游客模式也能用，只是数据会留在当前浏览器。${softTail}`;
+    }
+    if (text.includes("播放") || text.includes("看不了") || text.includes("打不开") || text.includes("跳转")) {
+      return `${voicePrefix}影片卡片点进去后会打开对应平台的搜索/播放入口。如果平台要求会员或登录，需要在平台页面完成；我这边会尽量不让你跳到首页。${softTail}`;
+    }
+    if (text.includes("一起看") || text.includes("邀请") || text.includes("好友")) {
+      return `${voicePrefix}点左侧“一起看”，选影片和平台，再创建共看房间。复制邀请链接给朋友，就可以边看边聊啦。${softTail}`;
+    }
+    if (text.includes("推荐") || text.includes("不知道") || text.includes("看什么") || text.includes("片")) {
+      const pick = recommendations[guideMood % Math.max(recommendations.length, 1)]?.movie ?? movieRows[guideMood % Math.max(movieRows.length, 1)]?.movie;
+      return pick ? `${voicePrefix}今晚可以试试《${pick.title}》。它是${pick.type}，偏${pick.genres.slice(0, 2).join("、")}，我觉得挺适合现在打开看看。${softTail}` : `${voicePrefix}可以先去“快速选片”，告诉我时间、心情和平台，我会帮你挑几部。`;
+    }
+    if (text.includes("讨论") || text.includes("评论") || text.includes("评价")) {
+      return `${voicePrefix}讨论区可以选影片、发评论、回复别人，还能点热议话题快速开聊。想认真安利一部片，可以从那里开始。${softTail}`;
+    }
+    if (text.includes("漫画") || text.includes("番剧")) {
+      return `${voicePrefix}首页频道里有“番剧”和“漫画”。点进去会筛出对应内容，卡片里也有哔哩哔哩、爱奇艺、芒果TV、腾讯动漫等搜索入口。${softTail}`;
+    }
+    if (text.includes("你好") || text.includes("在吗") || text.includes("hi") || text.includes("hello")) {
+      return `${voicePrefix}在呀，我在右下角陪你。今天想认真看片，还是想随便找点轻松的？${state.pet.intimacy >= 80 ? "我已经给你留了一个小心心。" : ""}`;
+    }
+    if (text.includes("累") || text.includes("烦") || text.includes("难受")) {
+      return `${voicePrefix}那今晚别选太费脑的啦。可以去快速选片点“治愈”或“轻松”，先让自己舒服一点。${state.pet.intimacy >= 80 ? "靠近一点，我陪你歇会儿。" : softTail}`;
+    }
+    return `${voicePrefix}收到。我先按影迹小助手的理解回答：可以从首页搜索、快速选片、一起看或讨论区继续。如果你说具体片名或问题，我能回答得更准一点。${softTail}`;
+  }
+
+  function sendAssistantMessage(event: FormEvent) {
+    event.preventDefault();
+    const text = assistantInput.trim();
+    if (!text) return;
+    const reply = makeAssistantReply(text);
+    const nextMessages: AssistantMessage[] = [
+      { role: "user", text },
+      { role: "assistant", text: reply },
+    ];
+    setAssistantMessages((current) => [...current, ...nextMessages].slice(-8));
+    setAssistantInput("");
+    setGuideMood((value) => value + 1);
+  }
+
+  function addPetMessage(text: string) {
+    const message: AssistantMessage = { role: "assistant", text };
+    setAssistantMessages((current) => [...current, message].slice(-8));
+    setAssistantOpen(true);
+  }
+
+  function updatePet(patch: (pet: PetState) => PetState) {
+    setState((current) => ({
+      ...current,
+      pet: patch(current.pet),
+    }));
+  }
+
+  function claimDailyCoins() {
+    if (state.pet.lastDailyClaim === today) {
+      addPetMessage("今天的小金币已经领过啦，明天再来，我会记得你的。");
+      return;
+    }
+    const amount = auth ? 50 : 25;
+    updatePet((pet) => ({
+      ...pet,
+      coins: pet.coins + amount,
+      lastDailyClaim: today,
+      mood: clampStat(pet.mood + 6),
+    }));
+    setPetAction("love");
+    addPetMessage(`已领取 ${amount} 金币。${auth ? `登录状态奖励更多，${petLabel}很满意。` : "游客也有小奖励，登录后每天可以领更多。"}`);
+  }
+
+  function switchPetSpecies(species: PetSpecies) {
+    if (state.pet.species === species) {
+      addPetMessage(`${petLabel}已经在这里啦，刚刚还悄悄靠近了一点。`);
+      setPetAction("love");
+      return;
+    }
+    const nextLabel = species === "cat" ? "小猫" : "小狗";
+    updatePet((pet) => ({
+      ...pet,
+      species,
+      name: species === "cat" ? "影影" : "迹迹",
+      mood: clampStat(pet.mood + 5),
+    }));
+    setPetAction("love");
+    addPetMessage(`已经切换成${nextLabel}啦。它会继续继承你的金币、亲密度和用品。`);
+  }
+
+  function buyPetItem(itemId: PetItemId) {
+    const item = petShopItems.find((entry) => entry.id === itemId);
+    if (!item) return;
+    if (state.pet.coins < item.price) {
+      addPetMessage("金币不够啦。真钱购买需要接入微信/支付宝/Stripe 商户支付，接好后订单金额才能进入你的收款账户。");
+      return;
+    }
+    updatePet((pet) => ({
+      ...pet,
+      coins: pet.coins - item.price,
+      inventory: {
+        ...pet.inventory,
+        [itemId]: pet.inventory[itemId] + 1,
+      },
+    }));
+    setPetAction("love");
+    addPetMessage(`买到了「${item.name}」。${petLabel}已经把它放进柜子里了。`);
+  }
+
+  function feedPet(itemId: "fish" | "milk") {
+    const item = petShopItems.find((entry) => entry.id === itemId);
+    if (!item || state.pet.inventory[itemId] <= 0) {
+      addPetMessage("这个食物没有库存啦，可以先用金币买一点。");
+      return;
+    }
+    updatePet((pet) => ({
+      ...pet,
+      hunger: clampStat(pet.hunger + (itemId === "fish" ? 18 : 12)),
+      mood: clampStat(pet.mood + (itemId === "fish" ? 4 : 8)),
+      intimacy: clampStat(pet.intimacy + (itemId === "fish" ? 2 : 3)),
+      inventory: {
+        ...pet.inventory,
+        [itemId]: Math.max(0, pet.inventory[itemId] - 1),
+      },
+    }));
+    setPetAction("feed");
+    addPetMessage(itemId === "fish" ? `${petLabel}先把爪爪搭在你手上表示感谢，然后咔嚓咔嚓开始吃饭。` : `温牛奶喝完啦，${petLabel}把爪爪搭过来，谢谢你照顾它。`);
+  }
+
+  function interactWithPet(action: keyof typeof petInteractionMap) {
+    const effect = petInteractionMap[action];
+    updatePet((pet) => ({
+      ...pet,
+      intimacy: clampStat(pet.intimacy + effect.intimacy),
+      mood: clampStat(pet.mood + effect.mood),
+      clean: clampStat(pet.clean + effect.clean),
+      hunger: clampStat(pet.hunger + effect.hunger),
+    }));
+    setGuideMood((value) => value + 1);
+    setPetAction(action);
+    addPetMessage(`${effect.label}成功：${petSpecies === "cat" ? effect.catReply : effect.dogReply}`);
   }
 
   const guideProfiles: Record<Tab, {
@@ -2139,26 +2982,116 @@ function App() {
     },
   };
   const activeGuide = guideProfiles[activeTab];
-  const activeTalk = activeGuide.talks[guideMood % activeGuide.talks.length];
+
+  if (!auth && !guestMode) {
+    return (
+      <AuthView
+        mode={authMode}
+        setMode={setAuthMode}
+        form={authForm}
+        setForm={setAuthForm}
+        error={authError}
+        busy={authBusy}
+        submit={submitAuth}
+        enterGuestMode={enterGuestMode}
+      />
+    );
+  }
+
+  if (!stateReady) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <p className="eyebrow">CineList</p>
+          <h1>正在进入你的片单</h1>
+          <p>{syncStatus}</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
-    <main>
-      <aside className="mascot-guide" aria-label="使用引导">
-        <div className={`mascot-model image-mascot ${activeGuide.mascot} mood-${guideMood % 3}`} aria-hidden="true">
-          <img
-            src={activeGuide.mascot === "cat" ? "/mascots/cat-3d.png" : "/mascots/dog-3d.png"}
-            alt=""
-          />
-        </div>
-        <div>
-          <strong>{activeGuide.title}</strong>
-          <p>{activeGuide.usage}</p>
-          <small>{activeGuide.breed}：{activeGuide.tip}</small>
-          <div className="mascot-chat">
-            <span>{activeTalk}</span>
-            <button type="button" onClick={() => setGuideMood((value) => value + 1)}>和它互动</button>
+    <main className={`app-shell scroll-${scrollStage}`}>
+      <aside className={`mascot-guide ${assistantOpen ? "open" : "collapsed"}`} aria-label={`${petLabel}互动助手`}>
+        <button className="mascot-bubble-button" type="button" onClick={() => setAssistantOpen((value) => !value)}>
+          <span className={`pet-figure action-${petAction}`}>
+            <span className={`mascot-model image-mascot ${petSpecies} mood-${guideMood % 3}`} aria-hidden="true">
+              <img src={petAsset} alt="" />
+            </span>
+            <span className="heart-burst" aria-hidden="true">
+              <i>♥</i>
+              <i>♥</i>
+              <i>♥</i>
+            </span>
+          </span>
+          <strong>{assistantOpen ? "收起" : "互动"}</strong>
+        </button>
+        {assistantOpen && (
+          <div className="pet-assistant-panel">
+            <div className="pet-head">
+              <div>
+                <strong>猫猫商店</strong>
+                <small>{state.pet.name} · Lv.{petLevel} · {petCloseness}</small>
+              </div>
+              <button type="button" onClick={() => setAssistantOpen(false)} aria-label="收起互动框">×</button>
+            </div>
+            <div className="pet-switcher" aria-label="切换陪伴角色">
+              <button className={petSpecies === "cat" ? "active" : ""} type="button" onClick={() => switchPetSpecies("cat")}>小猫</button>
+              <button className={petSpecies === "dog" ? "active" : ""} type="button" onClick={() => switchPetSpecies("dog")}>小狗</button>
+            </div>
+            <div className="pet-stats">
+              <span className="coin-pill">金币 {state.pet.coins}</span>
+              {[
+                ["爱心", state.pet.intimacy],
+                ["饱食", state.pet.hunger],
+                ["清洁", state.pet.clean],
+                ["心情", state.pet.mood],
+                ["升级", petNextLevelProgress],
+              ].map(([label, value]) => (
+                <span className="pet-meter" key={label}>
+                  <b>{label}</b>
+                  <i><em style={{ width: `${value}%` }} /></i>
+                  <strong>{value}</strong>
+                </span>
+              ))}
+            </div>
+            <div className="pet-actions">
+              <button type="button" onClick={claimDailyCoins}>
+                {state.pet.lastDailyClaim === today ? "今日已领" : auth ? "领50金币" : "领25金币"}
+              </button>
+              <button type="button" onClick={() => feedPet("fish")}>喂小鱼干 {state.pet.inventory.fish}</button>
+              <button type="button" onClick={() => feedPet("milk")}>喂牛奶 {state.pet.inventory.milk}</button>
+              <button type="button" onClick={() => interactWithPet("petHead")}>摸头</button>
+              <button type="button" onClick={() => interactWithPet("strokeFur")}>{petSpecies === "cat" ? "撸猫" : "撸狗"}</button>
+              <button type="button" onClick={() => interactWithPet("chin")}>摸下巴</button>
+              <button type="button" onClick={() => interactWithPet("groom")}>梳毛</button>
+            </div>
+            <div className="pet-shop">
+              {petShopItems.map((item) => (
+                <button type="button" key={item.id} onClick={() => buyPetItem(item.id)}>
+                  <span className="pet-shop-icon" aria-hidden="true">{item.icon}</span>
+                  <span>{item.name}</span>
+                  <small><b>{item.price}金币</b> · {item.effect}</small>
+                </button>
+              ))}
+            </div>
+            <div className="assistant-thread">
+              {assistantMessages.map((message, index) => (
+                <p className={message.role} key={`${message.role}-${index}`}>{message.text}</p>
+              ))}
+            </div>
+            <form className="assistant-input" onSubmit={sendAssistantMessage}>
+              <input
+                aria-label={`和${petLabel}助手聊天`}
+                placeholder={`和${petLabel}聊找片、一起看，或日常`}
+                value={assistantInput}
+                onChange={(event) => setAssistantInput(event.target.value)}
+              />
+              <button className="primary" type="submit">发送</button>
+            </form>
+            <p className="payment-note">金币不足时可接入真实支付；需要商户号、订单接口和支付回调后，款项才能进入你的收款账户。</p>
           </div>
-        </div>
+        )}
       </aside>
       <aside className="rail" aria-label="主要导航">
         <div className="brand">
@@ -2183,7 +3116,7 @@ function App() {
             <button
               className={activeTab === key ? "active" : ""}
               key={key}
-              onClick={() => setActiveTab(key as Tab)}
+              onClick={() => goTab(key as Tab)}
             >
               {label}
             </button>
@@ -2191,11 +3124,11 @@ function App() {
         </nav>
         <div className="account-card">
           <span>当前身份</span>
-          <strong>游客访问</strong>
-          <small>本机保存片单和评论草稿</small>
+          <strong>{auth?.user.displayName || auth?.user.username || "游客访问"}</strong>
+          <small>{syncStatus}</small>
           <div className="account-actions">
-            <button className="primary" onClick={() => setActiveTab("settings")}>登录账号</button>
-            <button onClick={() => setActiveTab("home")}>游客模式</button>
+            <button className="primary" onClick={auth ? logout : leaveGuestMode}>{auth ? "退出登录" : "登录账号"}</button>
+            <button onClick={() => goTab("home")}>游客模式</button>
           </div>
         </div>
         <div className="subtitle-card">
@@ -2208,7 +3141,24 @@ function App() {
       </aside>
 
       <section className="workspace">
+        <div
+          className={`pull-refresh-indicator ${pullRefresh.pulling ? "visible" : ""} ${pullRefresh.ready ? "ready" : ""}`}
+          style={{ transform: `translate(-50%, ${pullRefresh.distance}px)` }}
+          aria-live="polite"
+        >
+          {pullRefresh.ready ? "松开刷新影迹最新版本" : "下拉刷新"}
+        </div>
         <header className="mobile-app-bar">
+          {activeTab !== "home" && (
+            <button
+              className="mobile-home-back"
+              type="button"
+              onClick={goBack}
+              aria-label="返回上一个页面"
+            >
+              ‹ 返回
+            </button>
+          )}
           <div className="brand">
             <span className="brand-mark">影</span>
             <div>
@@ -2216,8 +3166,28 @@ function App() {
               <small>CineList</small>
             </div>
           </div>
-          <button onClick={() => setActiveTab("settings")}>游客访问</button>
+          <button onClick={auth ? logout : leaveGuestMode}>{auth ? auth.user.displayName || "退出" : "登录"}</button>
         </header>
+
+        {!isStandalone && !installHintHidden && (
+          <section className={`install-banner ${installHelpVisible ? "show-help" : ""}`}>
+            <div>
+              <strong>安装影迹到手机桌面</strong>
+              <p>{isIosDevice ? "iPhone 需要用 Safari 分享菜单安装，网页按钮不能直接弹出系统安装框。" : "安卓点“安装影迹”；如果没有弹框，请用浏览器菜单里的“添加到主屏幕”。"}</p>
+            </div>
+            <div>
+              <button className="primary" type="button" onClick={installPwa}>{isIosDevice ? "查看步骤" : "安装"}</button>
+              <button type="button" onClick={hideInstallHint}>稍后</button>
+            </div>
+            {installHelpVisible && (
+              <ol className="install-steps">
+                <li>用 Safari 打开 yingji.cyou。</li>
+                <li>点底部或顶部的分享按钮。</li>
+                <li>选择“添加到主屏幕”，再点“添加”。</li>
+              </ol>
+            )}
+          </section>
+        )}
 
         {activeTab === "home" && (
           <HomeView
@@ -2229,11 +3199,11 @@ function App() {
             recommendations={recommendations}
             query={query}
             setQuery={setQuery}
-            openPicker={() => setActiveTab("picker")}
-            openLibrary={() => setActiveTab("library")}
-            openParty={() => setActiveTab("party")}
-            openDiscussion={() => setActiveTab("discussion")}
-            openHistory={() => setActiveTab("watch")}
+            openPicker={() => goTab("picker")}
+            openLibrary={() => goTab("library")}
+            openParty={() => goTab("party")}
+            openDiscussion={() => goTab("discussion")}
+            openHistory={() => goTab("watch")}
             updateRecord={updateRecord}
             startWatchParty={startWatchParty}
             startSoloWatch={startSoloWatch}
@@ -2269,12 +3239,14 @@ function App() {
           <PickerView
             picker={picker}
             setPicker={setPicker}
+            rows={movieRows}
             recommendations={recommendations}
             skippedIds={skippedIds}
             skipBatch={() => setSkippedIds([...new Set([...skippedIds, ...recommendations.map((item) => item.movie.id)])])}
             resetSkipped={() => setSkippedIds([])}
             updateRecord={updateRecord}
             startWatchParty={startWatchParty}
+            startSoloWatch={startSoloWatch}
           />
         )}
 
@@ -2287,8 +3259,10 @@ function App() {
             chatInput={chatInput}
             setChatInput={setChatInput}
             createRoom={() => createWatchRoom()}
+            joinRoom={joinWatchRoom}
             sendMessage={sendRoomMessage}
             updatePlayback={updatePlayback}
+            updateRoomSelection={updateWatchRoomSelection}
           />
         )}
 
@@ -2377,6 +3351,195 @@ function emptyForm(): MovieForm {
   };
 }
 
+function AuthView(props: {
+  mode: AuthMode;
+  setMode: (mode: AuthMode) => void;
+  form: { username: string; password: string; displayName: string };
+  setForm: (form: { username: string; password: string; displayName: string }) => void;
+  error: string;
+  busy: boolean;
+  submit: (event: FormEvent) => void;
+  enterGuestMode: () => void;
+}) {
+  const isRegister = props.mode === "register";
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <div className="brand">
+          <span className="brand-mark">影</span>
+          <div>
+            <strong>影迹 CineList</strong>
+            <small>登录后，你的片单会保存到账号里。</small>
+          </div>
+        </div>
+        <div>
+          <p className="eyebrow">账号系统</p>
+          <h1>{isRegister ? "创建你的观影账号" : "登录你的观影片单"}</h1>
+          <p>同学可以各自注册账号，收藏、评分、进度和个人设置会分别保存。</p>
+        </div>
+        <form className="auth-form" onSubmit={props.submit}>
+          {isRegister && (
+            <Input
+              label="昵称"
+              value={props.form.displayName}
+              onChange={(displayName) => props.setForm({ ...props.form, displayName })}
+            />
+          )}
+          <Input
+            label="用户名"
+            value={props.form.username}
+            onChange={(username) => props.setForm({ ...props.form, username })}
+            required
+          />
+          <label>
+            密码
+            <input
+              required
+              minLength={6}
+              type="password"
+              value={props.form.password}
+              onChange={(event) => props.setForm({ ...props.form, password: event.target.value })}
+            />
+          </label>
+          {props.error && <p className="form-error">{props.error}</p>}
+          <button className="primary" disabled={props.busy}>
+            {props.busy ? "处理中..." : isRegister ? "注册并进入" : "登录"}
+          </button>
+        </form>
+        <button
+          className="text-button"
+          onClick={() => props.setMode(isRegister ? "login" : "register")}
+        >
+          {isRegister ? "已有账号，去登录" : "没有账号，去注册"}
+        </button>
+        <button className="guest-button" onClick={props.enterGuestMode}>
+          跳过登录，以游客身份访问
+        </button>
+        <p className="guest-note">游客数据只保存在当前浏览器，换设备或清理缓存后无法找回。</p>
+      </section>
+    </main>
+  );
+}
+
+function audienceReviews(movie: Movie, discussions: DiscussionComment[], talentReviews: TalentReview[]) {
+  const directReviews = discussions
+    .filter((comment) => comment.movieId === movie.id)
+    .sort((a, b) => b.likes - a.likes || b.createdAt.localeCompare(a.createdAt))
+    .map((comment) => `“${comment.text}”`);
+  const creatorReviews = talentReviews
+    .filter((review) => review.movieId === movie.id)
+    .map((review) => `“${review.insight}”`);
+  const fallback = [
+    `“${movie.genres.slice(0, 2).join("、") || movie.type}氛围很足，适合想认真看完的一晚。”`,
+    `“${movie.platforms[0]?.platformName ?? "常用平台"}入口好找，收藏后下次继续很方便。”`,
+    `“${movie.summary.slice(0, 34)}${movie.summary.length > 34 ? "..." : ""}”`,
+  ];
+  return [...directReviews, ...creatorReviews, ...fallback].slice(0, 2);
+}
+
+function movieMatchesQuery(movie: Movie, query: string) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return true;
+  return [
+    movie.title,
+    movie.alias,
+    movie.summary,
+    movie.type,
+    movie.genres.join(" "),
+    movie.directors.join(" "),
+    movie.actors.join(" "),
+    movie.platforms.map((platform) => platform.platformName).join(" "),
+  ].join(" ").toLowerCase().includes(keyword);
+}
+
+function movieSearchSuggestions(
+  rows: { movie: Movie; record?: UserMovieRecord }[],
+  query: string,
+  limit = 5,
+) {
+  const keyword = query.trim();
+  if (!keyword) return [];
+  return rows
+    .filter(({ movie }) => movieMatchesQuery(movie, keyword))
+    .slice(0, limit);
+}
+
+function SearchSuggestionPanel(props: {
+  rows: { movie: Movie; record?: UserMovieRecord }[];
+  query: string;
+  onSelect: (movie: Movie, record?: UserMovieRecord) => void;
+  emptyText?: string;
+}) {
+  const suggestions = movieSearchSuggestions(props.rows, props.query);
+  if (!props.query.trim()) return null;
+  return (
+    <div className="inline-suggestions" aria-label="根据搜索自动推荐影片">
+      <div className="inline-suggestions-head">
+        <strong>根据“{props.query.trim()}”推荐</strong>
+        <span>{suggestions.length ? `${suggestions.length} 部` : "暂无匹配"}</span>
+      </div>
+      {suggestions.length ? (
+        <div className="inline-suggestion-list">
+          {suggestions.map(({ movie, record }) => (
+            <button type="button" key={movie.id} onClick={() => props.onSelect(movie, record)}>
+              <Poster movie={movie} className="small" />
+              <span>
+                <strong>{movie.title}</strong>
+                <small>{movie.type} · {movie.year} · {movie.platforms[0]?.platformName ?? "平台待补充"}</small>
+              </span>
+              <em>{record?.status ?? "可选择"}</em>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="search-suggestion-empty">{props.emptyText ?? "没有找到对应影片，可以换个关键词。"}</p>
+      )}
+    </div>
+  );
+}
+
+function HomeMovieCard(props: {
+  row: { movie: Movie; record?: UserMovieRecord };
+  discussions: DiscussionComment[];
+  talentReviews: TalentReview[];
+  openMovie: (movie: Movie) => void;
+  startSoloWatch: (movie: Movie) => void;
+}) {
+  const { movie, record } = props.row;
+  const rating = normalizeRating(record?.rating ?? 0);
+  const reviews = audienceReviews(movie, props.discussions, props.talentReviews);
+  const platform = movie.platforms[0]?.platformName ?? "待补充平台";
+  const heat = Math.round((movie.year - 2000) * 1.7 + movie.genres.length * 8 + (record?.progress ?? 0) / 2);
+
+  return (
+    <article className="bili-video-card">
+      <button className="bili-cover" type="button" onClick={() => props.openMovie(movie)} aria-label={`查看${movie.title}详情`}>
+        <Poster movie={movie} fallback={movie.poster} />
+        <span>{movie.durationMinutes} 分钟</span>
+        <b>{platform}</b>
+      </button>
+      <div className="bili-card-body">
+        <button className="bili-title-link" type="button" onClick={() => props.openMovie(movie)}>
+          {movie.title}
+        </button>
+        <p>{movie.alias || movie.summary}</p>
+        <div className="bili-card-meta">
+          <span>{movie.type} · {movie.year}</span>
+          <span>{rating ? `${rating}.0 分` : `${heat} 热度`}</span>
+          <span>{record?.status ?? "未收藏"}</span>
+        </div>
+        <div className="bili-review-list">
+          {reviews.map((review) => <small key={review}>{review}</small>)}
+        </div>
+        <div className="bili-card-actions">
+          <button type="button" onClick={() => props.openMovie(movie)}>详情</button>
+          <button className="primary" type="button" onClick={() => props.startSoloWatch(movie)}>观看</button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function HomeView(props: {
   rows: { movie: Movie; record?: UserMovieRecord }[];
   genreScores: { genre: string; score: number }[];
@@ -2400,11 +3563,7 @@ function HomeView(props: {
   openTalentReview: (review: TalentReview) => void;
 }) {
   const [submittedQuery, setSubmittedQuery] = useState("");
-  const recent = props.rows
-    .filter(({ record }) => record)
-    .sort((a, b) => (b.record?.updatedAt ?? "").localeCompare(a.record?.updatedAt ?? ""))
-    .slice(0, 4);
-  const watching = props.rows.filter(({ record }) => record?.status === "在看").slice(0, 3);
+  const [selectedChannel, setSelectedChannel] = useState("动态");
   const progressRows = props.rows
     .filter(({ record }) => (record?.progress ?? 0) > 0 && (record?.progress ?? 0) < 100)
     .sort((a, b) => (b.record?.updatedAt ?? "").localeCompare(a.record?.updatedAt ?? ""))
@@ -2427,220 +3586,175 @@ function HomeView(props: {
       })
       .slice(0, 8);
   }, [props.rows, submittedQuery]);
+  const channelRows = useMemo(() => {
+    if (selectedChannel === "动态" || selectedChannel === "热门") return props.rows;
+    return props.rows.filter(({ movie }) => {
+      if (selectedChannel === "番剧") return movie.type === "动漫" || movie.genres.includes("番剧");
+      if (selectedChannel === "国创") return movie.type === "动漫" && (movie.genres.includes("国漫") || movie.platforms.some((platform) => ["腾讯视频", "爱奇艺", "芒果TV", "哔哩哔哩"].includes(platform.platformName)));
+      if (selectedChannel === "动画") return movie.type === "动漫" || movie.genres.includes("动画");
+      if (selectedChannel === "电视剧") return movie.type === "剧集";
+      if (selectedChannel === "漫画") return movie.type === "漫画" || movie.genres.includes("漫画");
+      return movie.type === selectedChannel || movie.genres.includes(selectedChannel);
+    });
+  }, [props.rows, selectedChannel]);
+  const visibleRows = submittedQuery.trim() ? searchResults : channelRows.slice(0, 24);
+  const featuredRow = progressRows[0] ?? props.rows.find(({ record }) => record?.status === "想看") ?? props.rows[0];
+  const channelLabels = ["番剧", "国创", "综艺", "动画", "漫画", "电影", "电视剧", "纪录片", "短剧", "悬疑", "科幻", "爱情", "喜剧", "更多"];
   const onlineTargets = useMemo(() => webSearchTargets(submittedQuery), [submittedQuery]);
 
   return (
-    <div className="page-stack">
-      <section className="hero">
+    <div className="bili-home">
+      <section className="bili-hero-banner">
         <div>
-          <p className="eyebrow">CineList MVP</p>
-          <h1>今晚看什么，交给一张会记忆的片单。</h1>
-          <p>
-            收藏、分类、查平台、快速选片和写评价都在一个地方完成，刷新页面后数据仍保存在本机浏览器。
-          </p>
-          <form
-            className="search-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSubmittedQuery(props.query);
-            }}
-          >
+          <p className="eyebrow">CineList Feed</p>
+          <h1>影迹</h1>
+          <p>像刷视频一样逛片库：封面、平台、大家评价和你的观看进度都放在同一个信息流里。</p>
+        </div>
+        <form
+          className="bili-search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmittedQuery(props.query);
+          }}
+        >
+          <div className="search-field">
+            <span className="search-mark" aria-hidden="true">⌕</span>
             <input
               aria-label="搜索影片"
-              placeholder="搜索影片、类型或英文名"
+              placeholder="搜索影片、类型、演员或平台"
               value={props.query}
               onChange={(event) => props.setQuery(event.target.value)}
             />
-            <button className="icon-button primary" type="submit" aria-label="搜索影片">
-              ⌕
+          </div>
+          <button className="primary search-submit" type="submit">搜索</button>
+        </form>
+      </section>
+
+      <SearchSuggestionPanel rows={props.rows} query={props.query} onSelect={props.openMovie} />
+
+      <section className="bili-channel-strip" aria-label="内容分区">
+        <div className="bili-hot-entry">
+          <button className={selectedChannel === "动态" ? "primary" : ""} type="button" onClick={() => setSelectedChannel("动态")}>动态</button>
+          <button className={selectedChannel === "热门" ? "primary" : ""} type="button" onClick={() => setSelectedChannel("热门")}>热门</button>
+        </div>
+        <div className="bili-channel-grid">
+          {channelLabels.map((label) => (
+            <button
+              className={selectedChannel === label ? "selected" : ""}
+              type="button"
+              key={label}
+              onClick={label === "更多" ? props.openLibrary : () => setSelectedChannel(label)}
+            >
+              {label}
             </button>
-            <button type="button" onClick={props.openLibrary}>管理片单</button>
-            <button type="button" onClick={props.openParty}>邀请共看</button>
-            <button className="primary" type="button" onClick={props.openPicker}>
-              快速选片
-            </button>
-          </form>
-          {submittedQuery.trim() && (
-            <div className="search-suggestions" aria-label="影片搜索结果">
-              <div className="search-suggestions-head">
-                <strong>搜索结果：{submittedQuery}</strong>
-                <span>{searchResults.length ? `${searchResults.length} 部影片` : "暂无匹配"}</span>
-              </div>
-              {searchResults.length ? (
-                <div className="search-suggestion-list">
-                  {searchResults.map(({ movie, record }) => (
-                    <button type="button" key={movie.id} onClick={() => props.openMovie(movie)}>
-                      <Poster movie={movie} className="small" />
-                      <div>
-                        <strong>{movie.title}</strong>
-                        <small>{movie.alias || movie.type} · {movie.year} · {record?.status ?? "未收藏"}</small>
-                        <p>{movie.summary || "点击查看影片详情、平台和评分信息。"}</p>
-                      </div>
-                      <em>查看详情</em>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="search-suggestion-empty">
-                  片库里没有找到匹配影片，可以换个关键词，或去“我的片单”新增影片。
-                </div>
-              )}
+          ))}
+        </div>
+        <div className="bili-tool-grid">
+          <button type="button" onClick={props.openLibrary}>片单</button>
+          <button type="button" onClick={props.openParty}>一起看</button>
+          <button type="button" onClick={props.openHistory}>历史</button>
+          <button type="button" onClick={props.openDiscussion}>讨论</button>
+        </div>
+      </section>
+
+      {submittedQuery.trim() && (
+        <section className="search-suggestions" aria-label="影片搜索结果">
+          <div className="search-suggestions-head">
+            <strong>搜索结果：{submittedQuery}</strong>
+            <span>{searchResults.length ? `${searchResults.length} 部影片` : "暂无匹配"}</span>
+          </div>
+          {onlineTargets.length > 0 && (
+            <div className="online-grid">
+              {onlineTargets.slice(0, 5).map((target) => (
+                <a className="button-link" href={target.url} key={target.name} target="_blank" rel="noreferrer">
+                  {target.name}
+                </a>
+              ))}
             </div>
           )}
-          <div className="resume-strip" aria-label="继续观看进度">
-            <div className="section-title">
-              <h2>继续观看</h2>
-              <button type="button" onClick={props.openHistory}>历史记录</button>
-            </div>
-            {progressRows.length ? (
-              <div className="resume-list">
-                {progressRows.map(({ movie, record }) => {
-                  const progress = Math.min(99, Math.max(1, record?.progress ?? 0));
-                  const startSeconds = Math.floor(movie.durationMinutes * 60 * (progress / 100));
-                  return (
-                    <button className="resume-item" key={movie.id} onClick={() => props.startSoloWatch(movie, startSeconds)}>
-                      <Poster movie={movie} className="small" />
-                      <div>
-                        <strong>{movie.title}</strong>
-                        <i><span style={{ width: `${progress}%` }} /></i>
-                      </div>
-                      <em>{progress}%</em>
-                    </button>
-                  );
-                })}
+        </section>
+      )}
+
+      <section className="bili-layout">
+        {featuredRow && (
+          <article className="bili-main-card">
+            <button type="button" className="bili-main-cover" onClick={() => props.openMovie(featuredRow.movie)}>
+              <Poster movie={featuredRow.movie} fallback={featuredRow.movie.poster} />
+              <div>
+                <strong>{featuredRow.movie.title}</strong>
+                <span>{featuredRow.movie.type} · {featuredRow.movie.year} · {featuredRow.movie.platforms[0]?.platformName ?? "平台待补充"}</span>
               </div>
-            ) : (
-              <p className="resume-empty">开始观看后，这里会显示上次进度。</p>
-            )}
-          </div>
-        </div>
-        <div className="home-side">
-          <div className="hero-panel">
-            <span>本月已看</span>
-            <strong>{props.summary.watchedCount}</strong>
-            <p>{props.summary.totalMinutes} 分钟 · 平均 {props.summary.averageRating || "暂无"} 分</p>
-          </div>
-          <RankList title="评分排行榜" items={props.ratingRank} valueSuffix="分" onSelect={props.openMovie} />
-          <RankList title="搜索热度榜" items={props.heatRank} valueSuffix="热度" onSelect={props.openMovie} />
+            </button>
+            <div className="bili-main-info">
+              <p>{featuredRow.movie.summary}</p>
+              <div className="bili-review-list">
+                {audienceReviews(featuredRow.movie, props.discussions, props.talentReviews).map((review) => (
+                  <small key={review}>{review}</small>
+                ))}
+              </div>
+              <div className="bili-card-actions">
+                <button type="button" onClick={() => props.openMovie(featuredRow.movie)}>查看详情</button>
+                <button className="primary" type="button" onClick={() => props.startSoloWatch(featuredRow.movie)}>开始观看</button>
+              </div>
+            </div>
+          </article>
+        )}
+
+        <div className="bili-feed-grid">
+          {!submittedQuery.trim() && (
+            <div className="channel-result-title">
+              <strong>{selectedChannel}频道</strong>
+              <span>{channelRows.length} 部内容</span>
+            </div>
+          )}
+          {visibleRows.map((row) => (
+            <HomeMovieCard
+              key={row.movie.id}
+              row={row}
+              discussions={props.discussions}
+              talentReviews={props.talentReviews}
+              openMovie={props.openMovie}
+              startSoloWatch={props.startSoloWatch}
+            />
+          ))}
         </div>
       </section>
 
-      <section className="talent-section">
-        <div className="section-title">
-          <div>
-            <p className="eyebrow">Creator Picks</p>
-            <h2>达人观后感</h2>
-          </div>
-          <button onClick={props.openLibrary}>先收藏喜欢的影片</button>
-        </div>
-        <div className="talent-grid">
-          {props.talentReviews.slice(0, 4).map((review) => {
-            const movie = props.rows.find((row) => row.movie.id === review.movieId)?.movie;
-            return (
-              <article className="talent-card" key={review.id}>
-                <button className="talent-video" type="button" onClick={() => props.openTalentReview(review)} aria-label={`播放${review.title}视频`}>
-                  <span>{movie?.poster ?? "影"}</span>
-                  <b>▶</b>
-                </button>
-                <div>
-                  <small>{movie?.title ?? "影片"} · {review.authorName}</small>
-                  <h3>{review.title}</h3>
-                  <p>{review.insight}</p>
-                  <div className="chips">
-                    {review.authorGenres.slice(0, 3).map((genre) => <span className="chip selected" key={genre}>{genre}</span>)}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="home-feature-grid">
-        <Panel title="观影讨论热区">
-          <div className="discussion-preview">
-            {props.discussions.slice(0, 3).map((comment) => {
-              const movie = props.rows.find((row) => row.movie.id === comment.movieId)?.movie;
+      <section className="bili-rich-row">
+        <Panel title="达人观后感">
+          <div className="talent-grid">
+            {props.talentReviews.slice(0, 4).map((review) => {
+              const movie = props.rows.find((row) => row.movie.id === review.movieId)?.movie;
               return (
-                <article key={comment.id}>
-                  <Poster movie={movie} className="small" fallback="聊" />
+                <article className="talent-card" key={review.id}>
+                  <button className="talent-video" type="button" onClick={() => props.openTalentReview(review)} aria-label={`播放${review.title}视频`}>
+                    <Poster movie={movie} fallback={movie?.poster ?? "影"} />
+                    <b>▶</b>
+                  </button>
                   <div>
-                    <strong>{movie?.title ?? "影片讨论"}</strong>
-                    <p>{comment.text}</p>
-                    <small>{comment.likes} 赞 · {comment.author}</small>
+                    <small>{movie?.title ?? "影片"} · {review.authorName}</small>
+                    <h3>{review.title}</h3>
+                    <p>{review.insight}</p>
                   </div>
                 </article>
               );
             })}
           </div>
-          <button className="primary" onClick={props.openDiscussion}>进入讨论区</button>
         </Panel>
-        <Panel title="片单灵感">
-          <div className="idea-board">
-            <span>周末共看局</span>
-            <span>下饭短剧</span>
-            <span>高分补课</span>
-            <span>朋友安利</span>
-          </div>
-          <p>把空白留给下一张片单：可以按心情、场景或朋友分组收藏。</p>
-          <button onClick={props.openLibrary}>整理我的片单</button>
-        </Panel>
-      </section>
-
-      <section className="metric-grid">
-        <Metric label="片库总数" value={props.rows.length} />
-        <Metric label="想看" value={props.rows.filter(({ record }) => record?.status === "想看").length} />
-        <Metric label="在看" value={props.rows.filter(({ record }) => record?.status === "在看").length} />
-        <Metric label="已评价" value={props.rows.filter(({ record }) => (record?.rating ?? 0) > 0).length} />
-      </section>
-
-      <section className="split">
-        <Panel title="常看类型">
+        <Panel title="影迹数据">
+          <section className="metric-grid">
+            <Metric label="片库总数" value={props.rows.length} />
+            <Metric label="想看" value={props.rows.filter(({ record }) => record?.status === "想看").length} />
+            <Metric label="在看" value={props.rows.filter(({ record }) => record?.status === "在看").length} />
+            <Metric label="已评价" value={props.rows.filter(({ record }) => (record?.rating ?? 0) > 0).length} />
+          </section>
           <div className="chips">
-            {props.genreScores.slice(0, 6).map((item) => (
-              <span className="chip strong" key={item.genre}>
-                {item.genre} {item.score}
-              </span>
-            ))}
-          </div>
-        </Panel>
-        <Panel title="猜你喜欢">
-          <div className="compact-list">
-            {props.recommendations.slice(0, 3).map(({ movie, reasons }) => (
-              <article key={movie.id}>
-                <Poster movie={movie} className="small" />
-                <div>
-                  <strong>{movie.title}</strong>
-                  <p>{reasons[0]}</p>
-                </div>
-              </article>
+            {props.genreScores.slice(0, 8).map((item) => (
+              <span className="chip strong" key={item.genre}>{item.genre} {item.score}</span>
             ))}
           </div>
         </Panel>
       </section>
-
-      <section className="split">
-        <Panel title="继续观看">
-          <div className="compact-list">
-            {(watching.length ? watching : recent).map(({ movie, record }) => (
-              <article key={movie.id}>
-                <Poster movie={movie} className="small" />
-                <div>
-                  <strong>{movie.title}</strong>
-                  <p>{record?.status ?? "未收藏"} · 进度 {record?.progress ?? 0}%</p>
-                </div>
-                <button onClick={() => props.updateRecord(movie.id, { status: "在看", progress: Math.max(record?.progress ?? 0, 10) })}>
-                  继续
-                </button>
-              </article>
-            ))}
-          </div>
-        </Panel>
-      </section>
-
-      <Panel title="片库影片">
-        <MovieGrid rows={props.rows.slice(0, 24)} updateRecord={props.updateRecord} />
-      </Panel>
     </div>
   );
 }
@@ -2742,7 +3856,7 @@ function LibraryView(props: {
             <label>
               内容形式
               <select value={props.form.type} onChange={(event) => props.setForm({ ...props.form, type: event.target.value as ContentType })}>
-                {["电影", "剧集", "动漫", "纪录片", "综艺", "短剧"].map((item) => (
+                {["电影", "剧集", "动漫", "漫画", "纪录片", "综艺", "短剧"].map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
@@ -2763,13 +3877,20 @@ function LibraryView(props: {
         </form>
       )}
 
-      <section className="toolbar">
-        <input placeholder="搜索片名、类型、英文名" value={props.query} onChange={(event) => props.setQuery(event.target.value)} />
-        <select value={props.statusFilter} onChange={(event) => props.setStatusFilter(event.target.value as MovieStatus | "全部")}>
-          {["全部", "想看", "在看", "已看", "暂停", "弃看"].map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
+      <section className="toolbar-panel">
+        <form className="toolbar" onSubmit={(event) => event.preventDefault()}>
+          <div className="search-field">
+            <span className="search-mark" aria-hidden="true">⌕</span>
+            <input placeholder="搜索片名、类型、英文名" value={props.query} onChange={(event) => props.setQuery(event.target.value)} />
+          </div>
+          <button className="primary search-submit" type="submit">搜索</button>
+          <select value={props.statusFilter} onChange={(event) => props.setStatusFilter(event.target.value as MovieStatus | "全部")}>
+            {["全部", "想看", "在看", "已看", "暂停", "弃看"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </form>
+        <SearchSuggestionPanel rows={props.rows} query={props.query} onSelect={props.editMovie} />
       </section>
 
       <section className="list-manager">
@@ -2816,18 +3937,106 @@ function LibraryView(props: {
 function PickerView(props: {
   picker: PickerInput;
   setPicker: (picker: PickerInput) => void;
+  rows: { movie: Movie; record?: UserMovieRecord }[];
   recommendations: ReturnType<typeof recommend>;
   skippedIds: string[];
   skipBatch: () => void;
   resetSkipped: () => void;
   updateRecord: (movieId: string, patch: Partial<UserMovieRecord>) => void;
   startWatchParty: (movie: Movie, startSeconds?: number) => void;
+  startSoloWatch: (movie: Movie, startSeconds?: number) => void;
 }) {
+  const [pickerQuery, setPickerQuery] = useState("");
+  const query = pickerQuery.trim().toLowerCase();
+  const matchesQuery = (movie: Movie) => {
+    if (!query) return true;
+    return [
+      movie.title,
+      movie.alias,
+      movie.summary,
+      movie.type,
+      movie.genres.join(" "),
+      movie.actors.join(" "),
+      movie.directors.join(" "),
+      movie.platforms.map((platform) => platform.platformName).join(" "),
+    ].join(" ").toLowerCase().includes(query);
+  };
+  const heroRow = props.recommendations[0] ?? props.rows[0];
+  const feedRows = [
+    ...props.recommendations.map(({ movie, record, score, reasons }) => ({ movie, record, score, reasons })),
+    ...props.rows
+      .filter(({ movie }) => !props.recommendations.some((item) => item.movie.id === movie.id))
+      .slice(0, 15)
+      .map(({ movie, record }, index) => ({
+        movie,
+        record,
+        score: Math.max(60, calcHeatValue({ movie, record }, index)),
+        reasons: [
+          `${movie.type}片库热门条目，适合${props.picker.companion}观看。`,
+          movie.platforms[0] ? `${movie.platforms[0].platformName} 有搜索入口，方便继续确认播放状态。` : "暂未补充平台入口，可先加入片单。",
+        ],
+      })),
+  ].filter(({ movie }) => matchesQuery(movie)).slice(0, 18);
+  const startMovie = (movie: Movie, record?: UserMovieRecord) => {
+    props.updateRecord(movie.id, {
+      status: "在看",
+      progress: Math.max(record?.progress ?? 0, 10),
+      watchPlatform: movie.platforms[0]?.platformName ?? record?.watchPlatform ?? "",
+    });
+    const startSeconds = Math.floor(movie.durationMinutes * 60 * ((record?.progress ?? 0) / 100));
+    props.startSoloWatch(movie, startSeconds);
+  };
+
   return (
-    <div className="page-stack">
-      <PageHeader title="快速选片" description="输入当下条件，返回 1 到 3 部候选影片，并解释为什么推荐。" />
-      <section className="picker-panel">
-        <div className="segmented">
+    <div className="tencent-page">
+      {heroRow && (
+        <section className="tencent-hero">
+          <Poster movie={heroRow.movie} fallback={heroRow.movie.poster} />
+          <div className="tencent-hero-copy">
+            <p className="eyebrow">今日推荐</p>
+            <h1>{heroRow.movie.title}</h1>
+            <p className="tencent-hero-meta">
+              {heroRow.movie.type} · {heroRow.movie.year} · {heroRow.movie.genres.slice(0, 3).join(" / ")}
+            </p>
+            <p>{heroRow.movie.summary}</p>
+            <div className="tencent-hero-actions">
+              <button className="primary" type="button" onClick={() => startMovie(heroRow.movie, heroRow.record)}>
+                ▶ 立即播放
+              </button>
+              <button type="button" onClick={() => props.startWatchParty(heroRow.movie)}>一起看</button>
+            </div>
+          </div>
+          <div className="tencent-preview-strip">
+            {feedRows.slice(1, 6).map(({ movie }) => (
+              <button type="button" key={movie.id} onClick={() => startMovie(movie)}>
+                <Poster movie={movie} fallback={movie.poster} />
+                <span>{movie.title}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="tencent-filter-bar">
+        <form className="tencent-search" onSubmit={(event) => event.preventDefault()}>
+          <div className="search-field">
+            <span className="search-mark" aria-hidden="true">⌕</span>
+            <input
+              aria-label="搜索快速选片内容"
+              placeholder="搜索片名、演员、类型或平台"
+              value={pickerQuery}
+              onChange={(event) => setPickerQuery(event.target.value)}
+            />
+          </div>
+          <button className="primary search-submit" type="submit">搜索</button>
+          {pickerQuery && (
+            <button type="button" onClick={() => setPickerQuery("")}>
+              清空
+            </button>
+          )}
+        </form>
+        <SearchSuggestionPanel rows={props.rows} query={pickerQuery} onSelect={startMovie} />
+        <div className="tencent-time-tabs">
           {[30, 60, 120].map((minutes) => (
             <button
               className={props.picker.availableMinutes === minutes ? "selected" : ""}
@@ -2838,87 +4047,91 @@ function PickerView(props: {
             </button>
           ))}
         </div>
-        <label>
-          当前心情
-          <select value={props.picker.mood} onChange={(event) => props.setPicker({ ...props.picker, mood: event.target.value as Mood })}>
-            {["轻松", "刺激", "治愈", "烧脑"].map((item) => (
-              <option key={item}>{item}</option>
+        <div className="tencent-select-row">
+          <label>
+            当前心情
+            <select value={props.picker.mood} onChange={(event) => props.setPicker({ ...props.picker, mood: event.target.value as Mood })}>
+              {["轻松", "刺激", "治愈", "烧脑"].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            同行人
+            <select value={props.picker.companion} onChange={(event) => props.setPicker({ ...props.picker, companion: event.target.value as Companion })}>
+              {["独自", "情侣", "朋友", "家庭"].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+        <div>
+          <span>可用平台</span>
+          <div className="tencent-pill-row">
+            {platformOptions.map((platform) => (
+              <button
+                className={props.picker.platforms.includes(platform) ? "selected" : ""}
+                type="button"
+                key={platform}
+                onClick={() => props.setPicker({
+                  ...props.picker,
+                  platforms: props.picker.platforms.includes(platform)
+                    ? props.picker.platforms.filter((item) => item !== platform)
+                    : [...props.picker.platforms, platform],
+                })}
+              >
+                {platform}
+              </button>
             ))}
-          </select>
-        </label>
-        <label>
-          同行人
-          <select value={props.picker.companion} onChange={(event) => props.setPicker({ ...props.picker, companion: event.target.value as Companion })}>
-            {["独自", "情侣", "朋友", "家庭"].map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-        </label>
-        <CheckboxGroup
-          label="可用平台"
-          options={platformOptions}
-          values={props.picker.platforms}
-          onChange={(platforms) => props.setPicker({ ...props.picker, platforms })}
-        />
-        <CheckboxGroup
-          label="想看的类型"
-          options={genreOptions}
-          values={props.picker.genres}
-          onChange={(genres) => props.setPicker({ ...props.picker, genres })}
-        />
-      </section>
-
-      <section className="recommendations">
-        <div className="section-title">
-          <h2>候选影片</h2>
-          <div className="actions">
-            <button onClick={props.skipBatch}>换一批</button>
-            {props.skippedIds.length > 0 && <button onClick={props.resetSkipped}>重置跳过</button>}
           </div>
         </div>
-        {props.recommendations.length ? (
-          props.recommendations.map(({ movie, record, score, reasons }) => (
-            <article className="recommend-card" key={movie.id}>
-              <Poster movie={movie} />
-              <div>
-                <div className="card-title">
-                  <h3>{movie.title}</h3>
-                  <span>{score} 匹配分</span>
-                </div>
-                <p>{movie.summary}</p>
-                <div className="chips">
-                  {movie.genres.map((genre) => <span className="chip" key={genre}>{genre}</span>)}
-                  <span className="chip">{movie.durationMinutes} 分钟</span>
-                </div>
-                <ul className="reason-list">
-                  {reasons.map((reason) => <li key={reason}>{reason}</li>)}
-                </ul>
-                <div className="platforms">
-                  {movie.platforms.length ? movie.platforms.map((platform) => (
-                    <a href={playableUrl(platform, movie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
-                      {platform.platformName} · {platform.watchType}
-                    </a>
-                  )) : <span>暂无片源，可设置提醒</span>}
-                </div>
-              </div>
+        <div>
+          <span>频道分类</span>
+          <div className="tencent-pill-row">
+            {genreOptions.map((genre) => (
               <button
-                className="primary"
-                onClick={() =>
-                  props.updateRecord(movie.id, {
-                    status: "在看",
-                    progress: Math.max(record?.progress ?? 0, 10),
-                    watchPlatform: movie.platforms[0]?.platformName ?? record?.watchPlatform ?? "",
-                  })
-                }
+                className={props.picker.genres.includes(genre) ? "selected" : ""}
+                type="button"
+                key={genre}
+                onClick={() => props.setPicker({
+                  ...props.picker,
+                  genres: props.picker.genres.includes(genre)
+                    ? props.picker.genres.filter((item) => item !== genre)
+                    : [...props.picker.genres, genre],
+                })}
               >
-                开始观看
+                {genre}
               </button>
-              <button onClick={() => props.startWatchParty(movie)}>邀请共看</button>
-            </article>
-          ))
-        ) : (
-          <EmptyState text="没有完全匹配的影片。建议放宽时间范围、减少类型限制，或扩大平台范围。" />
-        )}
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="tencent-section-head">
+        <div>
+          <h2>今日推荐</h2>
+          <p>{props.recommendations.length ? "根据你的时间、心情和平台偏好生成。" : "当前条件较窄，先展示片库热门内容。"}</p>
+        </div>
+        <div className="actions">
+          <button onClick={props.skipBatch}>换一换</button>
+          {props.skippedIds.length > 0 && <button onClick={props.resetSkipped}>重置</button>}
+        </div>
+      </section>
+
+      <section className="tencent-grid">
+        {feedRows.length ? feedRows.map(({ movie, record, score, reasons }, index) => (
+          <article className="tencent-card" key={`${movie.id}-${index}`} onClick={() => startMovie(movie, record)}>
+            <button className="tencent-cover" type="button" onClick={(event) => {
+              event.stopPropagation();
+              startMovie(movie, record);
+            }}>
+              <Poster movie={movie} fallback={movie.poster} />
+              <span>{index < props.recommendations.length ? "推荐" : movie.platforms[0]?.platformName ?? "片库"}</span>
+              <b>{movie.durationMinutes} 分钟</b>
+            </button>
+            <div>
+              <h3>{movie.title}</h3>
+              <p>{reasons[0] ?? movie.summary}</p>
+              <small>{score} 匹配分 · {movie.type} · {movie.year}</small>
+            </div>
+          </article>
+        )) : <EmptyState text="没有找到匹配影片，可以换个关键词或减少筛选条件。" />}
       </section>
     </div>
   );
@@ -3084,20 +4297,26 @@ function WatchPartyView(props: {
   room: WatchRoom | null;
   chatInput: string;
   setChatInput: (value: string) => void;
-  createRoom: () => void;
+  createRoom: (movieId?: string, startSeconds?: number, status?: PlaybackStatus) => void;
+  joinRoom: (roomValue: string) => boolean;
   sendMessage: (event: FormEvent) => void;
   updatePlayback: (patch: Partial<PlaybackState>, updatedBy?: string) => void;
+  updateRoomSelection: (movieId: string, platformName: string, status?: PlaybackStatus) => void;
 }) {
   const [movieSearch, setMovieSearch] = useState("");
-  const [chatPaneWidth, setChatPaneWidth] = useState(28);
   const [videoHeight, setVideoHeight] = useState(560);
+  const [videoExpanded, setVideoExpanded] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState("");
   const [playbackKey, setPlaybackKey] = useState(0);
   const [copyStatus, setCopyStatus] = useState("");
+  const [roomEntry, setRoomEntry] = useState("");
+  const [roomEntryStatus, setRoomEntryStatus] = useState("");
+  const [mobileSelectionReady, setMobileSelectionReady] = useState(false);
+  const videoFrameRef = useRef<HTMLDivElement | null>(null);
   const selectedMovie = props.movies.find((movie) => movie.id === props.draft.movieId) ?? props.movies[0];
-  const movieOptions = useMemo(() => {
+  const searchMovieOptions = useMemo(() => {
     const keyword = movieSearch.trim().toLowerCase();
-    if (!keyword) return props.movies.slice(0, 80);
+    if (!keyword) return [];
     return props.movies
       .filter((movie) => [
         movie.title,
@@ -3107,13 +4326,9 @@ function WatchPartyView(props: {
         movie.actors.join(" "),
         movie.platforms.map((platform) => platform.platformName).join(" "),
       ].join(" ").toLowerCase().includes(keyword))
-      .slice(0, 80);
+      .slice(0, 10);
   }, [movieSearch, props.movies]);
-  useEffect(() => {
-    if (!movieSearch.trim() || !movieOptions.length) return;
-    if (movieOptions.some((movie) => movie.id === props.draft.movieId)) return;
-    changeMovie(movieOptions[0].id);
-  }, [movieOptions, movieSearch, props.draft.movieId]);
+  const movieOptions = movieSearch.trim() ? searchMovieOptions : props.movies.slice(0, 80);
   const roomMovie = props.movies.find((movie) => movie.id === props.room?.movieId) ?? selectedMovie;
   const selectedPlatform =
     roomMovie?.platforms.find((platform) => platform.platformName === props.room?.platformName) ??
@@ -3122,10 +4337,24 @@ function WatchPartyView(props: {
   const embeddedPlaybackUrl = selectedPlatform ? playableUrl(selectedPlatform, roomMovie?.title ?? selectedMovie?.title ?? "") : "";
   const hostName = props.draft.hostName.trim() || "我";
   const friendName = props.draft.friendName.trim() || "好友";
+  const videoFrameStyle = { "--video-height": `${videoHeight}px` } as CSSProperties & Record<string, string>;
   useEffect(() => {
     setPlaybackUrl(embeddedPlaybackUrl);
     setPlaybackKey((current) => current + 1);
   }, [embeddedPlaybackUrl]);
+
+  useEffect(() => {
+    setMobileSelectionReady(false);
+    setMovieSearch("");
+  }, [props.room?.id]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      if (!document.fullscreenElement) setVideoExpanded(false);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
 
   async function copyInviteLink() {
     if (!props.room) return;
@@ -3133,23 +4362,55 @@ function WatchPartyView(props: {
     setCopyStatus(ok ? "邀请链接已复制" : "复制失败，请手动选中链接复制");
   }
 
-  function changeMovie(movieId: string) {
+  function changePlatform(platformName: string) {
+    props.setDraft({ ...props.draft, platformName });
+    if (props.room && roomMovie) {
+      props.updateRoomSelection(roomMovie.id, platformName);
+    }
+  }
+
+  function submitRoomEntry(event: FormEvent) {
+    event.preventDefault();
+    const joined = props.joinRoom(roomEntry);
+    setRoomEntryStatus(joined ? "已进入房间" : "没有找到这个房间，请检查链接或房间号");
+  }
+
+  function chooseMovie(movieId: string, shouldPlay = false) {
     const nextMovie = props.movies.find((movie) => movie.id === movieId);
+    const platformName = nextMovie?.platforms.find((platform) => platform.platformName === props.draft.platformName)?.platformName ??
+      nextMovie?.platforms[0]?.platformName ??
+      props.draft.platformName;
     props.setDraft({
       ...props.draft,
       movieId,
-      platformName: nextMovie?.platforms[0]?.platformName ?? props.draft.platformName,
+      platformName,
     });
+    if (props.room) {
+      props.updateRoomSelection(movieId, platformName, shouldPlay ? "播放中" : "已暂停");
+      setMobileSelectionReady(true);
+      setPlaybackUrl(nextMovie ? playableUrl(makePlatform(platformName, nextMovie.title), nextMovie.title) : embeddedPlaybackUrl);
+      setPlaybackKey((current) => current + 1);
+      if (shouldPlay) {
+        window.setTimeout(() => {
+          document.querySelector(".watch-video-pane")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
+    } else if (shouldPlay) {
+      props.createRoom(movieId, 0, "播放中");
+      setMobileSelectionReady(true);
+      setPlaybackUrl(nextMovie ? playableUrl(makePlatform(platformName, nextMovie.title), nextMovie.title) : embeddedPlaybackUrl);
+      setPlaybackKey((current) => current + 1);
+      window.setTimeout(() => {
+        document.querySelector(".watch-video-pane")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
   }
 
-  function playOnPlatform() {
-    if (!selectedPlatform) return;
+  function playInRoom() {
+    if (!selectedPlatform || !props.room) return;
+    setMobileSelectionReady(true);
     setPlaybackUrl(embeddedPlaybackUrl);
     setPlaybackKey((current) => current + 1);
-    if (!props.room) {
-      props.createRoom();
-      return;
-    }
     props.updatePlayback({ status: "\u64ad\u653e\u4e2d", positionSeconds: props.room.playback.positionSeconds || 0 });
   }
 
@@ -3157,25 +4418,6 @@ function WatchPartyView(props: {
     if (!props.room) return;
     const url = `/chat.html?room=${encodeURIComponent(props.room.id)}&author=${encodeURIComponent(hostName)}`;
     window.open(url, `cinelist-chat-${props.room.id}`, "width=390,height=620,resizable=yes,scrollbars=yes");
-  }
-
-  function startShellResize(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    const shell = event.currentTarget.closest(".watch-party-shell") as HTMLElement | null;
-    if (!shell) return;
-    const rect = shell.getBoundingClientRect();
-    const updateWidth = (clientX: number) => {
-      const next = ((clientX - rect.left) / Math.max(rect.width, 1)) * 100;
-      setChatPaneWidth(Math.min(42, Math.max(20, next)));
-    };
-    updateWidth(event.clientX);
-    const handleMove = (moveEvent: globalThis.PointerEvent) => updateWidth(moveEvent.clientX);
-    const handleUp = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp, { once: true });
   }
 
   function startVideoResize(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -3194,105 +4436,108 @@ function WatchPartyView(props: {
     window.addEventListener("pointerup", handleUp, { once: true });
   }
 
+  async function toggleVideoFullscreen() {
+    if (!videoExpanded && videoFrameRef.current?.requestFullscreen) {
+      try {
+        await videoFrameRef.current.requestFullscreen();
+      } catch {
+        // Some embedded platform pages block fullscreen; keep the in-page expanded mode as fallback.
+      }
+    } else if (videoExpanded && document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        // Keep the layout toggle responsive even when the browser denies the fullscreen request.
+      }
+    }
+    setVideoExpanded((value) => !value);
+  }
+
+  const searchBlock = (
+    <section className="watch-search-block room-search-block wide room-search-after-status">
+      <span>搜索影片</span>
+      <form className="inline-search-form" onSubmit={(event) => event.preventDefault()}>
+        <div className="search-field">
+          <span className="search-mark" aria-hidden="true">⌕</span>
+          <input
+            placeholder="输入片名、类型、平台"
+            value={movieSearch}
+            onChange={(event) => setMovieSearch(event.target.value)}
+          />
+        </div>
+        <button className="primary search-submit" type="submit">搜索</button>
+      </form>
+      <SearchSuggestionPanel
+        rows={searchMovieOptions.map((movie) => ({ movie }))}
+        query={movieSearch}
+        onSelect={(movie) => chooseMovie(movie.id, true)}
+        emptyText="没有找到对应影片，可以换个片名、类型或平台。"
+      />
+    </section>
+  );
+
   return (
-    <div className="page-stack">
+    <div className="page-stack party-page">
       <PageHeader
         title="一起看"
         description="创建一个共看房间，把影片、平台入口、聊天和播放同步指令放在同一个界面里。"
       />
 
+      {!props.room && (
+        <section className="room-entry-panel">
+          <div><p className="eyebrow">加入共看</p><h2>打开邀请链接，或输入房间号</h2></div>
+          <form onSubmit={submitRoomEntry}>
+            <input aria-label="邀请链接或房间号" placeholder="粘贴邀请链接或输入 room-xxxx" value={roomEntry} onChange={(event) => setRoomEntry(event.target.value)} />
+            <button className="primary" type="submit">进入房间</button>
+          </form>
+          {roomEntryStatus && <p className="notice">{roomEntryStatus}</p>}
+        </section>
+      )}
+
       <section className="watch-hero">
+        {roomMovie && <Poster movie={roomMovie} fallback={roomMovie.poster} />}
         <div>
           <p className="eyebrow">Watch Party MVP</p>
-          <h1>共享的是观影节奏，不搬运会员片源。</h1>
+          <h1>{roomMovie?.title ?? "一起看"}</h1>
           <p>
-            这个页面负责邀请、聊天和同步播放意图。正式多人实时同步需要后端 WebSocket；第三方会员内容仍由各自账号在对应平台合法播放。
+            {roomMovie?.summary ?? "创建一个共看房间，把影片、平台入口、聊天和同步播放指令放在同一个界面里。"}
           </p>
+          <div className="watch-hero-actions">
+            <button className="primary" type="button" onClick={() => props.createRoom()}>
+              {props.room ? "重新创建房间" : "创建共看房间"}
+            </button>
+            <button disabled={!props.room || !selectedPlatform} type="button" onClick={playInRoom}>
+              创建后播放
+            </button>
+          </div>
         </div>
         <div className="watch-status">
-          <span>{props.room ? "房间已创建" : "等待创建房间"}</span>
-          <strong>{props.room?.id.replace("room-", "#") ?? "Ready"}</strong>
+          <span>{props.room ? "房间链接" : "等待创建房间"}</span>
+          {props.room ? (
+            <a className="room-link" href={props.room.inviteLink}>
+              {props.room.inviteLink}
+            </a>
+          ) : (
+            <strong>Ready</strong>
+          )}
+          {props.room && (
+            <div className="watch-status-link">
+              <small>转发给好友共同观看</small>
+              <button type="button" onClick={copyInviteLink}>复制链接</button>
+              {copyStatus && <small>{copyStatus}</small>}
+            </div>
+          )}
         </div>
       </section>
 
-      <section className="watch-layout">
-        <Panel title="创建邀请">
-          <div className="form-grid">
-            <label>
-              搜索影片
-              <input
-                placeholder="输入片名、类型、平台"
-                value={movieSearch}
-                onChange={(event) => setMovieSearch(event.target.value)}
-              />
-            </label>
-            <label>
-              选择影片
-              <select value={props.draft.movieId} onChange={(event) => changeMovie(event.target.value)}>
-                {movieOptions.map((movie) => (
-                  <option value={movie.id} key={movie.id}>{movie.title}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              观看平台
-              <select
-                value={props.draft.platformName}
-                onChange={(event) => props.setDraft({ ...props.draft, platformName: event.target.value })}
-              >
-                {(selectedMovie?.platforms.length ? selectedMovie.platforms : platformOptions.map((platformName) => makePlatform(platformName, selectedMovie?.title ?? ""))).map((platform) => (
-                  <option value={platform.platformName} key={platform.platformName}>{platform.platformName}</option>
-                ))}
-              </select>
-            </label>
-            <Input label="我的昵称" value={props.draft.hostName} onChange={(hostName) => props.setDraft({ ...props.draft, hostName })} />
-            <Input label="好友昵称" value={props.draft.friendName} onChange={(friendName) => props.setDraft({ ...props.draft, friendName })} />
-          </div>
-          <div className="actions">
-            <button className="primary" onClick={props.createRoom}>创建共看房间</button>
-            {selectedPlatform && (
-              <a className="button-link" href={playableUrl(selectedPlatform, selectedMovie?.title ?? "")} rel="noreferrer" target="_blank">
-                打开平台
-              </a>
-            )}
-          </div>
-
-          {props.room && (
-            <div className="invite-box">
-              <span>邀请链接</span>
-              <code>{props.room.inviteLink}</code>
-              <button type="button" onClick={copyInviteLink}>复制链接</button>
-              {copyStatus && <small className="copy-status">{copyStatus}</small>}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="房间成员">
-          <div className="room-movie">
-            <Poster movie={roomMovie} />
-            <div>
-              <h3>{roomMovie?.title ?? "请选择影片"}</h3>
-              <p>{roomMovie?.alias} · {props.room?.platformName ?? props.draft.platformName}</p>
-            </div>
-          </div>
-          <div className="member-list">
-            {(props.room?.members ?? [hostName, friendName]).map((member) => (
-              <span className="chip strong" key={member}>{member}</span>
-            ))}
-          </div>
-          <p className="notice">
-            现在是前端原型：同一浏览器内可体验流程。正式上线时，房间状态、消息和播放指令会通过 WebSocket 广播给链接里的每个成员。
-          </p>
-        </Panel>
-      </section>
+      {props.room && searchBlock}
 
       <section
-        className="watch-party-shell"
-        style={{ gridTemplateColumns: `minmax(220px, ${chatPaneWidth}%) 12px minmax(0, 1fr)` }}
+        className={`watch-party-shell ${videoExpanded ? "video-expanded" : ""} ${props.room ? "room-ready" : "room-locked"} ${mobileSelectionReady ? "mobile-selection-ready" : "mobile-waiting-selection"}`}
       >
         <aside className="watch-chat-pane">
           <div className="section-title">
-            <span>爆米花聊天室</span>
+            <span>{props.room ? `房间 ${props.room.id} · 互动` : "爆米花聊天室"}</span>
             <button disabled={!props.room} onClick={openChatPopup}>漂浮小窗</button>
           </div>
           <div className="watch-chat-scroll">
@@ -3317,18 +4562,8 @@ function WatchPartyView(props: {
           </form>
         </aside>
 
-        <button
-          aria-label="拖动调整聊天和影片宽度"
-          className="shell-resize-handle"
-          onPointerDown={startShellResize}
-          title="拖动调整大小"
-          type="button"
-        >
-          <span />
-        </button>
-
         <section className="watch-video-pane">
-          <div className="video-frame" style={{ minHeight: `${videoHeight}px` }}>
+          <div className="video-frame" ref={videoFrameRef} style={videoFrameStyle}>
             <button
               aria-label="拖动调整播放屏幕大小"
               className="video-size-grip"
@@ -3338,7 +4573,17 @@ function WatchPartyView(props: {
             >
               <span />
             </button>
-            {selectedPlatform ? (
+            <button
+              aria-label={videoExpanded ? "缩小视频" : "全屏视频"}
+              className="video-fullscreen-toggle"
+              disabled={!props.room}
+              onClick={toggleVideoFullscreen}
+              title={videoExpanded ? "缩小视频" : "全屏视频"}
+              type="button"
+            >
+              {videoExpanded ? "↙" : "↗"}
+            </button>
+            {props.room && selectedPlatform ? (
               <iframe
                 key={`${playbackUrl}-${playbackKey}`}
                 src={playbackUrl}
@@ -3350,7 +4595,7 @@ function WatchPartyView(props: {
             ) : (
               <div className="video-empty">
                 <span>{roomMovie?.poster ?? "?"}</span>
-                <p>暂时没有找到可播放入口</p>
+                <p>{props.room ? "暂时没有找到可播放入口" : "先创建共看房间，再开始播放和互动"}</p>
               </div>
             )}
           </div>
@@ -3363,8 +4608,11 @@ function WatchPartyView(props: {
               </p>
             </div>
             <div className="video-actions">
-              <button className="primary" disabled={!selectedPlatform} onClick={playOnPlatform}>
-                在壳内播放
+              <button className="primary" disabled={!props.room || !selectedPlatform} onClick={playInRoom}>
+                在房间播放
+              </button>
+              <button disabled={!props.room} type="button" onClick={toggleVideoFullscreen}>
+                {videoExpanded ? "缩小视频" : "全屏视频"}
               </button>
             </div>
           </div>
@@ -3381,7 +4629,7 @@ function WatchPartyView(props: {
             />
           </label>
           <div className="actions">
-            <button disabled={!selectedPlatform} onClick={playOnPlatform}>开播</button>
+            <button disabled={!props.room || !selectedPlatform} onClick={playInRoom}>开播</button>
             <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "\u5df2\u6682\u505c" })}>歇一口</button>
             <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: Math.max((props.room?.playback.positionSeconds ?? 0) - 30, 0) })}>
               倒带 30 秒
@@ -3405,90 +4653,59 @@ function WatchPartyView(props: {
           <p className="sync-meta">
             本机进度：{props.room ? props.room.playback.updatedBy : "创建房间后可用"}
           </p>
-          <p className="notice">播放会优先留在右侧壳子里。下方倍速、快进和后退会同步影迹本机进度；如果平台不开放控制接口，真实视频速度仍需用平台播放器自带按钮调整。</p>
+          <p className="notice">创建房间后才能播放和互动；选择平台后，搜索推荐会把影片切到当前房间并同步播放状态。</p>
         </section>
       </section>
+
       <section className="watch-layout">
-        <Panel title="同步控制">
-          <div className="sync-stage" aria-label="共看同步预览">
-            <div className="screen-glow">
-              <span>{roomMovie?.poster ?? "影"}</span>
-            </div>
-            <div>
-              <strong>{roomMovie?.title ?? "未选择影片"}</strong>
-              <p>
-                {props.room?.playback.status ?? "已暂停"} · {secondsLabel(props.room?.playback.positionSeconds ?? 0)} ·
-                {props.room?.playback.playbackRate ?? 1}x
-              </p>
-            </div>
-          </div>
-          <input
-            aria-label="同步进度"
-            type="range"
-            min="0"
-            max={Math.max((roomMovie?.durationMinutes ?? 90) * 60, 60)}
-            value={props.room?.playback.positionSeconds ?? 0}
-            onChange={(event) => props.updatePlayback({ positionSeconds: Number(event.target.value) })}
-            disabled={!props.room}
-          />
-          <div className="actions">
-            <button disabled={!selectedPlatform} onClick={playOnPlatform}>
-              {selectedPlatform ? `播放并弹出聊天窗` : "暂无播放入口"}
-            </button>
-            <button disabled={!props.room} onClick={() => props.updatePlayback({ status: "已暂停" })}>暂停</button>
-            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: Math.max((props.room?.playback.positionSeconds ?? 0) - 30, 0) })}>
-              后退 30 秒
-            </button>
-            <button disabled={!props.room} onClick={() => props.updatePlayback({ positionSeconds: (props.room?.playback.positionSeconds ?? 0) + 30 })}>
-              前进 30 秒
-            </button>
-          </div>
-          <div className="segmented compact">
-            {[0.75, 1, 1.25, 1.5].map((rate) => (
-              <button
-                disabled={!props.room}
-                className={props.room?.playback.playbackRate === rate ? "selected" : ""}
-                key={rate}
-                onClick={() => props.updatePlayback({ playbackRate: rate })}
+        <Panel title="创建邀请">
+          <div className="form-grid">
+            <label>
+              选择影片
+              <select value={props.draft.movieId} onChange={(event) => chooseMovie(event.target.value)}>
+                {movieOptions.map((movie) => (
+                  <option value={movie.id} key={movie.id}>{movie.title}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              观看平台
+              <select
+                value={props.draft.platformName}
+                onChange={(event) => changePlatform(event.target.value)}
               >
-                {rate}x
-              </button>
-            ))}
+                {(selectedMovie?.platforms.length ? selectedMovie.platforms : platformOptions.map((platformName) => makePlatform(platformName, selectedMovie?.title ?? ""))).map((platform) => (
+                  <option value={platform.platformName} key={platform.platformName}>{platform.platformName}</option>
+                ))}
+              </select>
+            </label>
+            <Input label="我的昵称" value={props.draft.hostName} onChange={(hostName) => props.setDraft({ ...props.draft, hostName })} />
+            <Input label="好友昵称" value={props.draft.friendName} onChange={(friendName) => props.setDraft({ ...props.draft, friendName })} />
           </div>
-          <p className="sync-meta">
-            最近同步：{props.room ? `${props.room.playback.updatedBy} · ${timeLabel(props.room.playback.updatedAt)}` : "创建房间后可用"}
-          </p>
-          <p className="notice">播放会同时弹出影迹聊天小窗，并在新标签打开平台入口；如果浏览器拦截弹窗，请允许本站弹窗。</p>
+          <div className="actions">
+            <button className="primary" onClick={() => props.createRoom()}>创建共看房间</button>
+            <button disabled={!props.room || !selectedPlatform} type="button" onClick={playInRoom}>创建后播放</button>
+          </div>
         </Panel>
 
-        <Panel title="聊天互动">
-          <div className="section-title">
-            <span>当前房间聊天</span>
-            <button className="primary" disabled={!props.room} onClick={openChatPopup}>弹出聊天窗</button>
+        <Panel title="房间成员">
+          <div className="room-movie">
+            <Poster movie={roomMovie} />
+            <div>
+              <h3>{roomMovie?.title ?? "请选择影片"}</h3>
+              <p>{roomMovie?.alias} · {props.room?.platformName ?? props.draft.platformName}</p>
+            </div>
           </div>
-          <div className="chat-list">
-            {(props.room?.messages ?? []).map((message) => (
-              <article className={message.author === "系统" ? "system-message" : ""} key={message.id}>
-                <strong>{message.author}</strong>
-                <p>{message.text}</p>
-                <span>{timeLabel(message.createdAt)}</span>
-              </article>
+          <div className="member-list">
+            {(props.room?.members ?? [hostName, friendName]).map((member) => (
+              <span className="chip strong" key={member}>{member}</span>
             ))}
-            {!props.room && <EmptyState text="创建房间后即可开始聊天。" />}
           </div>
-          <form className="chat-form" onSubmit={props.sendMessage}>
-            <input
-              aria-label="聊天内容"
-              disabled={!props.room}
-              placeholder="边看边聊，吐槽也有进度条"
-              value={props.chatInput}
-              onChange={(event) => props.setChatInput(event.target.value)}
-            />
-            <button className="primary" disabled={!props.room} type="submit">发送</button>
-          </form>
+          <p className="notice">
+            现在是前端原型：同一浏览器内可体验流程。正式上线时，房间状态、消息和播放指令会通过 WebSocket 广播给链接里的每个成员。
+          </p>
         </Panel>
       </section>
-
       <section className="implementation-note">
         <h2>正式实现必要条件</h2>
         <div className="note-grid">
@@ -3516,14 +4733,21 @@ function DiscussionView(props: {
   const [draft, setDraft] = useState("");
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const filteredRows = props.rows.filter(({ movie }) => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return true;
-    return [movie.title, movie.alias, movie.type, movie.genres.join(" ")].join(" ").toLowerCase().includes(keyword);
+    return movieMatchesQuery(movie, query);
   });
-  const selectedMovie = props.rows.find(({ movie }) => movie.id === selectedMovieId)?.movie ?? filteredRows[0]?.movie ?? props.rows[0]?.movie;
+  const selectedRow = props.rows.find(({ movie }) => movie.id === selectedMovieId) ?? filteredRows[0] ?? props.rows[0];
+  const selectedMovie = selectedRow?.movie;
+  const selectedRecord = selectedRow?.record;
   const movieComments = props.comments
     .filter((comment) => comment.movieId === selectedMovie?.id && !comment.parentId)
     .sort((a, b) => b.likes - a.likes || b.createdAt.localeCompare(a.createdAt));
+  const allMovieComments = props.comments.filter((comment) => comment.movieId === selectedMovie?.id);
+  const hotTopics = [
+    `${selectedMovie?.genres[0] ?? "剧情"}名场面`,
+    "适合谁一起看",
+    "结局讨论",
+    "平台观看体验",
+  ];
 
   function submitComment(event: FormEvent) {
     event.preventDefault();
@@ -3547,7 +4771,14 @@ function DiscussionView(props: {
       <PageHeader title="讨论区" description="按影片进入讨论树洞，游客和登录用户都可以评论、点赞和回复。" />
       <section className="discussion-layout">
         <aside className="discussion-sidebar">
-          <input placeholder="搜索影片" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <form className="inline-search-form" onSubmit={(event) => event.preventDefault()}>
+            <div className="search-field">
+              <span className="search-mark" aria-hidden="true">⌕</span>
+              <input placeholder="搜索影片" value={query} onChange={(event) => setQuery(event.target.value)} />
+            </div>
+            <button className="primary search-submit" type="submit">搜索</button>
+          </form>
+          <SearchSuggestionPanel rows={props.rows} query={query} onSelect={(movie) => setSelectedMovieId(movie.id)} />
           <div className="discussion-movie-list">
             {filteredRows.slice(0, 24).map(({ movie, record }) => (
               <button className={movie.id === selectedMovie.id ? "selected" : ""} key={movie.id} onClick={() => setSelectedMovieId(movie.id)}>
@@ -3570,9 +4801,40 @@ function DiscussionView(props: {
               <div className="chips">
                 {selectedMovie.genres.map((genre) => <span className="chip strong" key={genre}>{genre}</span>)}
               </div>
+              <div className="discussion-meta-grid">
+                <span>状态：{selectedRecord?.status ?? "未收藏"}</span>
+                <span>评分：{selectedRecord?.rating ? `${selectedRecord.rating} 分` : "待评价"}</span>
+                <span>讨论：{allMovieComments.length} 条</span>
+                <span>平台：{selectedMovie.platforms.slice(0, 2).map((platform) => platform.platformName).join(" / ") || "待补充"}</span>
+              </div>
             </div>
             <button onClick={() => props.startWatchParty(selectedMovie)}>一起看</button>
           </div>
+          <section className="discussion-hot-panel">
+            <div className="section-title">
+              <span>热议话题</span>
+              <small>点一个话题，快速带入评论框。</small>
+            </div>
+            <div className="chips">
+              {hotTopics.map((topic) => (
+                <button
+                  className="chip strong"
+                  type="button"
+                  key={topic}
+                  onClick={() => setDraft((current) => current ? `${current} #${topic}` : `#${topic} `)}
+                >
+                  #{topic}
+                </button>
+              ))}
+            </div>
+            <div className="discussion-platforms">
+              {selectedMovie.platforms.slice(0, 4).map((platform) => (
+                <a href={playableUrl(platform, selectedMovie.title)} key={platform.platformName} rel="noreferrer" target="_blank">
+                  去{platform.platformName}查片源
+                </a>
+              ))}
+            </div>
+          </section>
           <form className="discussion-composer" onSubmit={submitComment}>
             <textarea placeholder={`聊聊《${selectedMovie.title}》：名场面、槽点、适合谁看都可以。`} value={draft} onChange={(event) => setDraft(event.target.value)} />
             <button className="primary" type="submit">发布评论</button>
@@ -3999,7 +5261,7 @@ function calcSearchHeatRank(rows: { movie: Movie; record?: UserMovieRecord }[]) 
     .map(({ movie, record }, index) => {
       const recency = Math.max(0, movie.year - 2015);
       const platformBoost = movie.platforms.length * 7;
-      const typeBoost = movie.type === "短剧" ? 30 : movie.type === "综艺" ? 24 : movie.type === "剧集" ? 16 : 8;
+      const typeBoost = movie.type === "短剧" ? 30 : movie.type === "综艺" ? 24 : movie.type === "漫画" ? 20 : movie.type === "剧集" ? 16 : 8;
       const statusBoost = record?.status === "在看" ? 22 : record?.status === "想看" ? 12 : record?.status === "已看" ? 8 : 0;
       const ratingBoost = normalizeRating(record?.rating ?? 0) * 5;
       return {
@@ -4051,7 +5313,7 @@ function calcYingjiRank(rows: { movie: Movie; record?: UserMovieRecord }[]) {
 }
 
 function calcCategoryRanks(rows: { movie: Movie; record?: UserMovieRecord }[]) {
-  const labels = ["短剧", "古装", "都市", "悬疑", "爱情", "喜剧", "综艺", "纪录片", "动画"];
+  const labels = ["短剧", "漫画", "番剧", "古装", "都市", "悬疑", "爱情", "喜剧", "综艺", "纪录片", "动画"];
   return labels
     .map((label) => ({
       label,
@@ -4063,7 +5325,7 @@ function calcCategoryRanks(rows: { movie: Movie; record?: UserMovieRecord }[]) {
 function calcHeatValue(row: { movie: Movie; record?: UserMovieRecord }, index: number) {
   const recency = Math.max(0, row.movie.year - 2015);
   const platformBoost = row.movie.platforms.length * 7;
-  const typeBoost = row.movie.type === "短剧" ? 30 : row.movie.type === "综艺" ? 24 : row.movie.type === "剧集" ? 16 : 8;
+  const typeBoost = row.movie.type === "短剧" ? 30 : row.movie.type === "综艺" ? 24 : row.movie.type === "漫画" ? 20 : row.movie.type === "剧集" ? 16 : 8;
   const statusBoost = row.record?.status === "在看" ? 22 : row.record?.status === "想看" ? 12 : row.record?.status === "已看" ? 8 : 0;
   const ratingBoost = normalizeRating(row.record?.rating ?? 0) * 5;
   return recency + platformBoost + typeBoost + statusBoost + ratingBoost + (index % 9);
@@ -4077,7 +5339,7 @@ function normalizeRating(value: number) {
 
 function inferMoods(genres: string[]): Mood[] {
   const moods = new Set<Mood>();
-  if (genres.some((genre) => ["喜剧", "动画", "冒险", "综艺", "甜宠", "短剧"].includes(genre))) moods.add("轻松");
+  if (genres.some((genre) => ["喜剧", "动画", "漫画", "冒险", "综艺", "甜宠", "短剧"].includes(genre))) moods.add("轻松");
   if (genres.some((genre) => ["动作", "犯罪", "悬疑", "逆袭", "爽剧"].includes(genre))) moods.add("刺激");
   if (genres.some((genre) => ["治愈", "家庭", "纪录片"].includes(genre))) moods.add("治愈");
   if (genres.some((genre) => ["科幻", "悬疑"].includes(genre))) moods.add("烧脑");
@@ -4088,7 +5350,7 @@ function inferCompanions(genres: string[], type: ContentType): Companion[] {
   const companions = new Set<Companion>(["独自"]);
   if (genres.some((genre) => ["爱情", "治愈"].includes(genre))) companions.add("情侣");
   if (genres.some((genre) => ["喜剧", "动作", "科幻", "悬疑"].includes(genre))) companions.add("朋友");
-  if (genres.some((genre) => ["动画", "家庭", "纪录片", "综艺"].includes(genre)) || type === "动漫") companions.add("家庭");
+  if (genres.some((genre) => ["动画", "漫画", "家庭", "纪录片", "综艺"].includes(genre)) || type === "动漫") companions.add("家庭");
   if (type === "短剧") companions.add("朋友");
   return [...companions];
 }
@@ -4158,7 +5420,12 @@ function RankList({
 function Poster({ movie, className = "", fallback = "影" }: { movie?: Movie; className?: string; fallback?: string }) {
   const [failed, setFailed] = useState(false);
   if (!movie || failed) {
-    return <span className={`poster ${className}`.trim()}>{movie?.poster ?? fallback}</span>;
+    return (
+      <span className={`poster generated-cover ${className}`.trim()}>
+        <span>{movie?.poster ?? fallback}</span>
+        {movie && <small>{movie.title}</small>}
+      </span>
+    );
   }
   return (
     <span className={`poster has-cover ${className}`.trim()}>
